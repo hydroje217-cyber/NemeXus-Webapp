@@ -1,3 +1,5 @@
+import { supabaseConfigIssue } from '../lib/supabase';
+
 function BrandLockup({ title, subtitle }) {
   return (
     <div className="brand-lockup">
@@ -18,8 +20,11 @@ export default function SupabaseMissingScreen() {
       <section className="login-panel">
         <BrandLockup
           title="Supabase Setup Needed"
-          subtitle="Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to manager-dashboard/.env."
+          subtitle={supabaseConfigIssue || 'Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to manager-dashboard/.env.'}
         />
+        <p className="setup-hint">
+          On Vercel, add both variables in Settings &gt; Environment Variables, then redeploy the latest deployment.
+        </p>
       </section>
     </main>
   );

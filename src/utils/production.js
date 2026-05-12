@@ -199,9 +199,15 @@ export function aggregateDailyRows(items, fieldConfigs, options = {}) {
         id: `avg:${date}`,
         date,
       };
+      const usesDailySummaries = rows.some((row) => row?.is_daily_summary);
 
       fieldConfigs.forEach((config) => {
         if (config.aggregate === 'previousDayDifference') {
+          if (usesDailySummaries) {
+            result[config.key] = sumForField(rows, config.field);
+            return;
+          }
+
           result[config.key] = previousDayDifferenceByGroup(date, previousDayDifferenceMaps[config.key]);
           return;
         }
@@ -276,6 +282,27 @@ export function buildMonthlyProduction(readings, options = {}) {
   };
 }
 
+export function buildMonthlyProductionYears(readings, options = {}) {
+  const { now = new Date() } = options;
+  const years = new Set([now.getFullYear()]);
+
+  readings.forEach((reading) => {
+    const dayKey = dayKeyFromReading(reading);
+    const year = Number(dayKey.slice(0, 4));
+
+    if (Number.isFinite(year)) {
+      years.add(year);
+    }
+  });
+
+  return Array.from(years)
+    .sort((a, b) => b - a)
+    .map((year) => ({
+      year,
+      ...buildMonthlyProduction(readings, { now: new Date(year, 11, 31), monthCount: 12 }),
+    }));
+}
+
 export function buildDailyProduction(readings, options = {}) {
   const { now = new Date() } = options;
   const firstVisibleDay = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -306,6 +333,65 @@ export function buildDailyProduction(readings, options = {}) {
     totalProduction: rows.reduce((sum, row) => sum + row.production, 0),
     rows,
   };
+}
+
+export function buildDailyProductionMonths(readings, options = {}) {
+  const { now = new Date(), year = now.getFullYear() } = options;
+
+  return Array.from({ length: 12 }, (_item, monthIndex) => {
+    const monthDate = new Date(year, monthIndex, 1);
+    const lastDay = new Date(year, monthIndex + 1, 0);
+    const visibleFromDate = createDayKey(monthDate);
+    const visibleToDate = createDayKey(monthIndex === now.getMonth() ? now : lastDay);
+    const dailyRowsByDate = new Map(
+      buildDailyTotalizerRows(readings, { visibleFromDate, visibleToDate }).map((row) => [row.date, row])
+    );
+    const rows = [];
+
+    for (let date = new Date(monthDate); date <= lastDay; date.setDate(date.getDate() + 1)) {
+      const key = createDayKey(date);
+      const dailyRow = dailyRowsByDate.get(key);
+      const production = parseProductionNumber(dailyRow?.totalizer) ?? 0;
+
+      rows.push({
+        key,
+        date: key,
+        label: `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`,
+        production,
+      });
+    }
+
+    rows.sort((a, b) => b.key.localeCompare(a.key));
+
+    return {
+      key: createMonthKey(monthDate),
+      monthLabel: createFullMonthLabel(monthDate),
+      shortLabel: createMonthLabel(monthDate),
+      totalProduction: rows.reduce((sum, row) => sum + row.production, 0),
+      rows,
+    };
+  });
+}
+
+export function buildDailyProductionYears(readings, options = {}) {
+  const { now = new Date() } = options;
+  const years = new Set([now.getFullYear()]);
+
+  readings.forEach((reading) => {
+    const dayKey = dayKeyFromReading(reading);
+    const year = Number(dayKey.slice(0, 4));
+
+    if (Number.isFinite(year)) {
+      years.add(year);
+    }
+  });
+
+  return Array.from(years)
+    .sort((a, b) => b - a)
+    .map((year) => ({
+      year,
+      months: buildDailyProductionMonths(readings, { now, year }),
+    }));
 }
 
 export function buildDailyPowerConsumption({ chlorinationReadings = [], deepwellReadings = [] } = {}, options = {}) {

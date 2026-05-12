@@ -21,6 +21,7 @@ function formatDateTime(value) {
 
 export default function AccountsScreen({ accounts, currentProfileId, workingId, onRoleChange, onDeleteAccount }) {
   const [pendingDeleteAccount, setPendingDeleteAccount] = useState(null);
+  const [pendingRoleChange, setPendingRoleChange] = useState(null);
 
   function handleDeleteConfirm() {
     if (!pendingDeleteAccount) {
@@ -29,6 +30,15 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
 
     onDeleteAccount(pendingDeleteAccount);
     setPendingDeleteAccount(null);
+  }
+
+  function handleRoleChangeConfirm() {
+    if (!pendingRoleChange) {
+      return;
+    }
+
+    onRoleChange(pendingRoleChange.account, pendingRoleChange.nextRole);
+    setPendingRoleChange(null);
   }
 
   return (
@@ -65,7 +75,13 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
                       <select
                         value={account.role || 'operator'}
                         disabled={workingId === account.id}
-                        onChange={(event) => onRoleChange(account, event.target.value)}
+                        onChange={(event) =>
+                          setPendingRoleChange({
+                            account,
+                            currentRole: account.role || 'operator',
+                            nextRole: event.target.value,
+                          })
+                        }
                       >
                         {ROLE_OPTIONS.map((role) => (
                           <option key={role} value={role}>
@@ -120,6 +136,34 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
               <button type="button" className="danger-action" onClick={handleDeleteConfirm}>
                 <Trash2 size={16} />
                 Delete account
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingRoleChange ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="role-change-title">
+            <button
+              className="dialog-close-button"
+              type="button"
+              aria-label="Cancel role change"
+              onClick={() => setPendingRoleChange(null)}
+            >
+              <X size={18} />
+            </button>
+            <h3 id="role-change-title">Change account role?</h3>
+            <p>
+              Change {pendingRoleChange.account.full_name || pendingRoleChange.account.email || 'this account'} from{' '}
+              {pendingRoleChange.currentRole} to {pendingRoleChange.nextRole}.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button type="button" className="secondary-action" onClick={() => setPendingRoleChange(null)}>
+                Cancel
+              </button>
+              <button type="button" onClick={handleRoleChangeConfirm}>
+                Confirm role
               </button>
             </div>
           </div>

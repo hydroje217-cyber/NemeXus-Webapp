@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, Clock, Droplets, FlaskConical, Grid3X3, History, Hourglass, Minus, Plus, RotateCcw, ShieldCheck, Users, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronDown, Clock, Droplets, FlaskConical, Grid3X3, History, Hourglass, Minus, Plus, RotateCcw, ShieldCheck, Users, X, Zap } from 'lucide-react';
 import {
   Bar,
   BarChart as RechartsBarChart,
   CartesianGrid,
+  Cell,
   LabelList,
   Legend,
   ResponsiveContainer,
@@ -59,6 +60,7 @@ function ZoomControls({ zoomLevel, onZoomIn, onZoomOut, onReset }) {
 
 function ChartPanel({
   title,
+  titleControl,
   icon: Icon,
   summaryLabel,
   summaryValue,
@@ -75,10 +77,14 @@ function ChartPanel({
     <section className="analytics-panel" ref={panelRef}>
       <header className="analytics-heading">
         <div>
-          <span className="section-icon">
-            <Icon size={16} />
-          </span>
-          <h3>{title}</h3>
+          {titleControl || (
+            <>
+              <span className="section-icon">
+                <Icon size={16} />
+              </span>
+              <h3>{title}</h3>
+            </>
+          )}
         </div>
       </header>
       <div className={summaryItems?.length ? 'summary-pill-grid' : undefined}>
@@ -115,6 +121,15 @@ function getChartWidth(rowCount, zoomLevel, daily = false) {
   }
 
   return Math.max(baseMinimumWidth, scaledWidth);
+}
+
+function getCurrentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getCurrentYear() {
+  return new Date().getFullYear();
 }
 
 function formatDailyLabel(date) {
@@ -159,6 +174,20 @@ function TooltipContent({ active, label, payload }) {
     return null;
   }
 
+  const row = payload[0]?.payload;
+  if (row?.stackItems?.length) {
+    return (
+      <div className="chart-tooltip">
+        <strong>{label}</strong>
+        {[...row.stackItems].reverse().map((item) => (
+          <span key={item.name} style={{ '--tooltip-color': item.fill }}>
+            {item.name}: {formatNumber(item.value)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
   const orderedPayload = [...payload].reverse();
 
   return (
@@ -185,23 +214,59 @@ function ChartValueLabel({ x, y, width, value }) {
   );
 }
 
-function StackSegmentLabel({ x, y, width, height, value, fill }) {
+function StackSegmentLabel({ x, y, width, height, value, fill, payload, segment }) {
   if (!value || value <= 0 || height < 32 || width < 24) {
     return null;
   }
 
-  const isDeepwell = fill === '#f59e0b';
+  const segmentFill = segment ? payload?.[`${segment}Fill`] : fill;
+  const isLightFill = segmentFill === '#f59e0b' || segmentFill === '#e7a321';
 
   return (
     <text
       x={x + width / 2}
       y={y + height / 2 + 4}
       textAnchor="middle"
-      className={isDeepwell ? 'recharts-stack-label dark' : 'recharts-stack-label'}
+      className={isLightFill ? 'recharts-stack-label dark' : 'recharts-stack-label'}
     >
       {formatNumber(value)}
     </text>
   );
+}
+
+function createOrderedStackRow(row, items, totalKey) {
+  const orderedItems = items
+    .map((item) => ({
+      ...item,
+      value: Number(row[item.key]) || 0,
+    }))
+    .sort((first, second) => second.value - first.value);
+  const bottom = orderedItems[0];
+  const top = orderedItems[1];
+  const totalValue = Number(row[totalKey]) || orderedItems.reduce((sum, item) => sum + item.value, 0);
+
+  return {
+    ...row,
+    bottomValue: bottom?.value ?? 0,
+    bottomName: bottom?.name ?? '',
+    bottomFill: bottom?.fill ?? '#1398aa',
+    topValue: top?.value ?? 0,
+    topName: top?.name ?? '',
+    topFill: top?.fill ?? '#1398aa',
+    [totalKey]: totalValue,
+    stackItems: orderedItems,
+  };
+}
+
+function stackSegmentRadius(row, segment) {
+  const hasBottom = row.bottomValue > 0;
+  const hasTop = row.topValue > 0;
+
+  if (!hasBottom || !hasTop) {
+    return [7, 7, 7, 7];
+  }
+
+  return segment === 'bottom' ? [0, 0, 7, 7] : [7, 7, 0, 0];
 }
 
 function SimpleBarChart({ rows, valueKey, emptyMessage, zoomLevel, daily = false }) {
@@ -249,12 +314,21 @@ function SimpleBarChart({ rows, valueKey, emptyMessage, zoomLevel, daily = false
 
 function StackedPowerChart({ rows, zoomLevel, daily = false }) {
   const visibleRows = rows ?? [];
-  const chartRows = visibleRows.map((row) => ({
-    label: row.label,
-    chlorinationPower: Number(row.chlorinationPower) || 0,
-    deepwellPower: Number(row.deepwellPower) || 0,
-    totalPower: Number(row.totalPower) || 0,
-  }));
+  const chartRows = visibleRows.map((row) =>
+    createOrderedStackRow(
+      {
+        label: row.label,
+        chlorinationPower: Number(row.chlorinationPower) || 0,
+        deepwellPower: Number(row.deepwellPower) || 0,
+        totalPower: Number(row.totalPower) || 0,
+      },
+      [
+        { key: 'chlorinationPower', name: 'Chlorination', fill: '#149a8d' },
+        { key: 'deepwellPower', name: 'Deepwell', fill: '#f59e0b' },
+      ],
+      'totalPower'
+    )
+  );
   const hasData = visibleRows.some((row) => Number(row.totalPower) > 0);
   const chartWidth = getChartWidth(chartRows.length, zoomLevel, daily);
   const chartHeight = daily ? 330 : 290;
@@ -277,11 +351,17 @@ function StackedPowerChart({ rows, zoomLevel, daily = false }) {
                 />
                 <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(17, 106, 117, 0.08)' }} />
                 <Legend wrapperStyle={{ display: 'none' }} />
-                <Bar dataKey="chlorinationPower" name="Chlorination" stackId="power" fill="#149a8d" radius={[0, 0, 7, 7]} barSize={daily ? 22 : 36}>
-                  <LabelList dataKey="chlorinationPower" content={<StackSegmentLabel fill="#149a8d" />} />
+                <Bar dataKey="bottomValue" name="Bottom" stackId="power" radius={[0, 0, 7, 7]} barSize={daily ? 22 : 36}>
+                  {chartRows.map((row) => (
+                    <Cell key={`${row.label}-power-bottom`} fill={row.bottomFill} radius={stackSegmentRadius(row, 'bottom')} />
+                  ))}
+                  <LabelList dataKey="bottomValue" content={<StackSegmentLabel segment="bottom" />} />
                 </Bar>
-                <Bar dataKey="deepwellPower" name="Deepwell" stackId="power" fill="#f59e0b" radius={[7, 7, 0, 0]} barSize={daily ? 22 : 36}>
-                  <LabelList dataKey="deepwellPower" content={<StackSegmentLabel fill="#f59e0b" />} />
+                <Bar dataKey="topValue" name="Top" stackId="power" radius={[7, 7, 0, 0]} barSize={daily ? 22 : 36}>
+                  {chartRows.map((row) => (
+                    <Cell key={`${row.label}-power-top`} fill={row.topFill} radius={stackSegmentRadius(row, 'top')} />
+                  ))}
+                  <LabelList dataKey="topValue" content={<StackSegmentLabel segment="top" />} />
                   <LabelList dataKey="totalPower" content={<ChartValueLabel />} />
                 </Bar>
               </RechartsBarChart>
@@ -352,12 +432,21 @@ function isReadingInDateRange(reading, range) {
 
 function StackedChemicalChart({ rows, zoomLevel }) {
   const visibleRows = rows ?? [];
-  const chartRows = visibleRows.map((row) => ({
-    label: row.label,
-    chlorineUsage: Number(row.chlorineUsage) || 0,
-    peroxideUsage: Number(row.peroxideUsage) || 0,
-    totalUsage: Number(row.totalUsage) || 0,
-  }));
+  const chartRows = visibleRows.map((row) =>
+    createOrderedStackRow(
+      {
+        label: row.label,
+        chlorineUsage: Number(row.chlorineUsage) || 0,
+        peroxideUsage: Number(row.peroxideUsage) || 0,
+        totalUsage: Number(row.totalUsage) || 0,
+      },
+      [
+        { key: 'chlorineUsage', name: 'Chlorine', fill: '#0f8f7c' },
+        { key: 'peroxideUsage', name: 'Peroxide', fill: '#e7a321' },
+      ],
+      'totalUsage'
+    )
+  );
   const hasData = visibleRows.some((row) => Number(row.totalUsage) > 0);
   const chartWidth = getChartWidth(chartRows.length, zoomLevel);
   const chartHeight = 290;
@@ -380,11 +469,17 @@ function StackedChemicalChart({ rows, zoomLevel }) {
                 />
                 <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(17, 106, 117, 0.08)' }} />
                 <Legend wrapperStyle={{ display: 'none' }} />
-                <Bar dataKey="chlorineUsage" name="Chlorine" stackId="chemical" fill="#0f8f7c" radius={[0, 0, 7, 7]} barSize={36}>
-                  <LabelList dataKey="chlorineUsage" content={<StackSegmentLabel fill="#0f8f7c" />} />
+                <Bar dataKey="bottomValue" name="Bottom" stackId="chemical" radius={[0, 0, 7, 7]} barSize={36}>
+                  {chartRows.map((row) => (
+                    <Cell key={`${row.label}-chemical-bottom`} fill={row.bottomFill} radius={stackSegmentRadius(row, 'bottom')} />
+                  ))}
+                  <LabelList dataKey="bottomValue" content={<StackSegmentLabel segment="bottom" />} />
                 </Bar>
-                <Bar dataKey="peroxideUsage" name="Peroxide" stackId="chemical" fill="#e7a321" radius={[7, 7, 0, 0]} barSize={36}>
-                  <LabelList dataKey="peroxideUsage" content={<StackSegmentLabel fill="#e7a321" />} />
+                <Bar dataKey="topValue" name="Top" stackId="chemical" radius={[7, 7, 0, 0]} barSize={36}>
+                  {chartRows.map((row) => (
+                    <Cell key={`${row.label}-chemical-top`} fill={row.topFill} radius={stackSegmentRadius(row, 'top')} />
+                  ))}
+                  <LabelList dataKey="topValue" content={<StackSegmentLabel segment="top" />} />
                   <LabelList dataKey="totalUsage" content={<ChartValueLabel />} />
                 </Bar>
               </RechartsBarChart>
@@ -430,14 +525,14 @@ function getCurrentShift(date = new Date()) {
   const hour = date.getHours();
 
   if (hour >= 7 && hour < 15) {
-    return 'SHIFT 1 (7AM - 3PM)';
+    return 'SHIFT A (7AM - 3PM)';
   }
 
   if (hour >= 15 && hour < 23) {
-    return 'SHIFT 2 (3PM - 11PM)';
+    return 'SHIFT B (3PM - 11PM)';
   }
 
-  return 'SHIFT 3 (11PM - 7AM)';
+  return 'SHIFT C (11PM - 7AM)';
 }
 
 function getCurrentShiftWindow(date = new Date()) {
@@ -509,7 +604,7 @@ export function buildOperationAlerts(dashboard) {
         key: `missing-${siteType}`,
         severity: 'warning',
         title: `${siteType === 'CHLORINATION' ? 'Chlorination' : 'Deepwell'} shift reading missing`,
-        detail: `No ${siteType.toLowerCase()} reading has been received for ${getCurrentShift().toLowerCase()}.`,
+        detail: `No ${siteType.toLowerCase()} reading has been received for ${getCurrentShift()}.`,
       });
     }
   });
@@ -1065,7 +1160,11 @@ export default function OverviewScreen({
   const [powerZoom, setPowerZoom] = useState(1);
   const [chemicalZoom, setChemicalZoom] = useState(1);
   const [monthlyProductionZoom, setMonthlyProductionZoom] = useState(1);
+  const [selectedMonthlyProductionYear, setSelectedMonthlyProductionYear] = useState(getCurrentYear);
   const [dailyProductionZoom, setDailyProductionZoom] = useState(1);
+  const [dailyProductionMonthMenuOpen, setDailyProductionMonthMenuOpen] = useState(false);
+  const [selectedDailyProductionYear, setSelectedDailyProductionYear] = useState(getCurrentYear);
+  const [selectedDailyProductionMonthKey, setSelectedDailyProductionMonthKey] = useState(getCurrentMonthKey);
   const summaryRef = useRef(null);
   const operationsRef = useRef(null);
   const productionRef = useRef(null);
@@ -1073,10 +1172,20 @@ export default function OverviewScreen({
   const chemicalRef = useRef(null);
   const activityRef = useRef(null);
   const monthlyProduction = dashboard?.monthlyProduction ?? { totalProduction: 0, averageProduction: 0, rows: [] };
+  const monthlyProductionYears = dashboard?.monthlyProductionYears ?? [{ year: selectedMonthlyProductionYear, ...monthlyProduction }];
+  const selectedMonthlyProduction =
+    monthlyProductionYears.find((yearData) => yearData.year === selectedMonthlyProductionYear) || monthlyProductionYears[0] || monthlyProduction;
   const dailyProduction = dashboard?.dailyProduction ?? { monthLabel: '', totalProduction: 0, rows: [] };
+  const dailyProductionMonths = dashboard?.dailyProductionMonths ?? [];
+  const dailyProductionYears = dashboard?.dailyProductionYears ?? [{ year: selectedDailyProductionYear, months: dailyProductionMonths }];
+  const selectedDailyProductionYearData =
+    dailyProductionYears.find((yearData) => yearData.year === selectedDailyProductionYear) || dailyProductionYears[0];
+  const selectedYearMonths = selectedDailyProductionYearData?.months ?? dailyProductionMonths;
+  const selectedDailyProduction =
+    selectedYearMonths.find((month) => month.key === selectedDailyProductionMonthKey) || selectedYearMonths[0] || dailyProduction;
   const monthlyPowerConsumption = dashboard?.monthlyPowerConsumption ?? { totalPower: 0, rows: [] };
   const monthlyChemicalUsage = dashboard?.monthlyChemicalUsage ?? { totalChlorine: 0, totalPeroxide: 0, rows: [] };
-  const activeDailyRows = dailyProduction.rows.filter((row) => Number(row.production) > 0);
+  const activeDailyRows = selectedDailyProduction.rows.filter((row) => Number(row.production) > 0);
   const sectionRefs = {
     summary: summaryRef,
     operations: operationsRef,
@@ -1162,13 +1271,34 @@ export default function OverviewScreen({
           title="Monthly Production"
           icon={BarChart3}
           summaryLabel="Total Production"
-          summaryValue={formatNumber(monthlyProduction.totalProduction)}
-          summaryHint="Latest 10 months"
+          summaryValue={formatNumber(selectedMonthlyProduction.totalProduction)}
+          summaryHint={`${selectedMonthlyProduction.year || selectedMonthlyProductionYear} months`}
           panelRef={productionRef}
+          titleControl={
+            <div className="monthly-production-heading">
+              <span className="section-icon">
+                <BarChart3 size={16} />
+              </span>
+              <h3>Monthly Production</h3>
+              <label className="production-year-select compact">
+                <span>Year</span>
+                <select
+                  value={selectedMonthlyProduction.year || selectedMonthlyProductionYear}
+                  onChange={(event) => setSelectedMonthlyProductionYear(Number(event.target.value))}
+                >
+                  {monthlyProductionYears.map((yearData) => (
+                    <option key={yearData.year} value={yearData.year}>
+                      {yearData.year}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          }
           {...zoomProps(monthlyProductionZoom, setMonthlyProductionZoom)}
         >
           <SimpleBarChart
-            rows={monthlyProduction.rows}
+            rows={selectedMonthlyProduction.rows}
             valueKey="production"
             emptyMessage="Monthly production will appear after readings with totalizer values are saved."
             zoomLevel={monthlyProductionZoom}
@@ -1176,17 +1306,77 @@ export default function OverviewScreen({
         </ChartPanel>
 
         <ChartPanel
-          title={`${dailyProduction.monthLabel || 'Current Month'} Production`}
+          title={`${selectedDailyProduction.monthLabel || 'Current Month'} Production`}
+          titleControl={
+            <div className="production-month-picker">
+              <button
+                type="button"
+                className="chart-title-dropdown"
+                aria-expanded={dailyProductionMonthMenuOpen}
+                onClick={() => setDailyProductionMonthMenuOpen((current) => !current)}
+              >
+                <CalendarDays size={20} />
+                <span>{`${selectedDailyProduction.monthLabel || 'Current Month'} Production`}</span>
+                <ChevronDown size={18} />
+              </button>
+              {dailyProductionMonthMenuOpen ? (
+                <div className="production-month-menu">
+                  <div className="production-month-menu-head">
+                    <div className="production-month-menu-header">Select production month</div>
+                    <label className="production-year-select">
+                      <span>Year</span>
+                      <select
+                        value={selectedDailyProductionYear}
+                        onChange={(event) => {
+                          const nextYear = Number(event.target.value);
+                          const monthSuffix = selectedDailyProductionMonthKey.slice(4) || getCurrentMonthKey().slice(4);
+
+                          setSelectedDailyProductionYear(nextYear);
+                          setSelectedDailyProductionMonthKey(`${nextYear}${monthSuffix}`);
+                        }}
+                      >
+                        {dailyProductionYears.map((yearData) => (
+                          <option key={yearData.year} value={yearData.year}>
+                            {yearData.year}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {selectedYearMonths.map((month) => (
+                    <button
+                      type="button"
+                      key={month.key}
+                      className={selectedDailyProductionMonthKey === month.key ? 'active' : undefined}
+                      onClick={() => {
+                        setSelectedDailyProductionMonthKey(month.key);
+                        setDailyProductionMonthMenuOpen(false);
+                      }}
+                    >
+                      <span className="production-month-name">
+                        {selectedDailyProductionMonthKey === month.key ? <CheckCircle2 size={18} /> : null}
+                        <span>{month.monthLabel}</span>
+                      </span>
+                      <span className="production-month-value">
+                        <strong>{formatNumber(month.totalProduction)}</strong>
+                        {Number(month.totalProduction) <= 0 ? <em>No data</em> : null}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          }
           icon={CalendarDays}
           summaryLabel="Current Month"
-          summaryValue={formatNumber(dailyProduction.totalProduction)}
+          summaryValue={formatNumber(selectedDailyProduction.totalProduction)}
           summaryHint={`${activeDailyRows.length} active day(s)`}
           {...zoomProps(dailyProductionZoom, setDailyProductionZoom)}
         >
           <SimpleBarChart
-            rows={dailyProduction.rows}
+            rows={selectedDailyProduction.rows}
             valueKey="production"
-            emptyMessage="Daily production will appear after current-month totalizer values are saved."
+            emptyMessage="Daily production will appear after totalizer values are saved for this month."
             zoomLevel={dailyProductionZoom}
             daily
           />
