@@ -15,7 +15,8 @@
 .dark-mode .recent-readings-panel,
 .dark-mode .operator-list-panel,
 .dark-mode .readings-filter-card,
-.dark-mode .readings-info-card {
+.dark-mode .readings-info-card,
+.dark-mode .shift-hero {
   background: #111c27;
   border-color: #263a47;
   box-shadow: 0 16px 38px rgba(0, 0, 0, 0.24);
@@ -65,6 +66,17 @@
 .dark-mode .chart-empty,
 .dark-mode .summary-pill small,
 .dark-mode .summary-pill span {
+  color: #9db1bb;
+}
+
+.dark-mode .shift-hero h3 {
+  color: #f0f7f8;
+}
+
+.dark-mode .shift-hero p,
+.dark-mode .muted-cell,
+.dark-mode .shift-form-grid label,
+.dark-mode .shift-range-row label {
   color: #9db1bb;
 }
 
@@ -907,6 +919,10 @@
 
   .readings-form-grid {
     grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
+  }
+
+  .shift-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .readings-actions {
@@ -1805,6 +1821,28 @@
     background: transparent;
     border-color: transparent;
     box-shadow: none;
+  }
+
+  .shift-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shift-form-grid,
+  .shift-range-row {
+    grid-template-columns: 1fr;
+  }
+
+  .shift-notes-field {
+    grid-column: auto;
+  }
+
+  .shift-range-row {
+    display: grid;
+  }
+
+  .shift-range-row label {
+    grid-template-columns: auto auto minmax(0, 1fr);
   }
 }
 

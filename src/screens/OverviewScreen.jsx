@@ -1049,7 +1049,12 @@ function buildCheckpointData(readings, { now, siteType, shift }) {
 
     const items = sites.map((site) => {
       const reading = readingsBySlot.get(`${time}:${site.siteType}:${site.name}`);
-      const operator = reading?.submitted_profile?.full_name || reading?.submitted_profile?.email || 'Operator';
+      const operator =
+        reading?.submitted_profile?.full_name ||
+        reading?.submitted_profile?.email ||
+        reading?.shift_match?.assignment?.profile?.full_name ||
+        reading?.shift_match?.assignment?.profile?.email ||
+        'Operator';
 
       return {
         key: site.id,

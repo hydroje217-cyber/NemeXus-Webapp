@@ -128,6 +128,7 @@ function getReadingSearchText(row) {
     row.sites?.name,
     row.status,
     row.remarks,
+    getShiftMatchLabel(row),
     row.submitted_profile?.full_name,
     row.submitted_profile?.email,
     row.slot_datetime,
@@ -136,6 +137,25 @@ function getReadingSearchText(row) {
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
+}
+
+function getShiftMatchLabel(row) {
+  const match = row?.shift_match;
+
+  if (!match?.shift) {
+    return row?.is_daily_summary ? 'Daily summary' : '-';
+  }
+
+  const operator = match.assignment?.profile?.full_name || match.assignment?.profile?.email || 'Unassigned';
+  const status = {
+    assigned: 'Assigned',
+    matched: 'Matched',
+    mismatch: 'Mismatch',
+    unassigned: 'Unassigned',
+    outside_shift: 'Outside shift',
+  }[match.status] || match.status;
+
+  return `${match.shift.label} ${status} ${operator}`;
 }
 
 function getReadingDetailFields(row) {
@@ -149,6 +169,7 @@ function getReadingDetailFields(row) {
     ['Slot', formatShortDateTime(row.slot_datetime)],
     ['Recorded at', formatShortDateTime(row.reading_datetime)],
     ['Recorded by', row.submitted_profile?.full_name || row.submitted_profile?.email || '-'],
+    ['Shift match', getShiftMatchLabel(row)],
     ['Remarks', row.remarks || '-'],
   ];
 
@@ -371,6 +392,7 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
       { key: 'peroxide', label: 'Peroxide', render: (row) => row.peroxide_consumption ?? '-' },
       { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
       { key: 'recordedBy', label: 'Recorded By', render: (row) => row.submitted_profile?.full_name || row.submitted_profile?.email || '-' },
+      { key: 'shift', label: 'Shift', render: getShiftMatchLabel },
       { key: 'remarks', label: 'Remarks', render: (row) => row.remarks || row.status || '-' },
     ],
     []
@@ -393,6 +415,7 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
       { key: 'power', label: 'Power kWh', render: (row) => row.power_kwh_shift ?? '-' },
       { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
       { key: 'recordedBy', label: 'Recorded By', render: (row) => row.submitted_profile?.full_name || row.submitted_profile?.email || '-' },
+      { key: 'shift', label: 'Shift', render: getShiftMatchLabel },
       { key: 'remarks', label: 'Remarks', render: (row) => row.remarks || row.status || '-' },
     ],
     []

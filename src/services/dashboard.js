@@ -12,6 +12,8 @@ import {
   buildMonthlyProductionYears,
   startOfYearlyAnalyticsSourceIso,
 } from '../utils/production';
+import { enrichReadingsWithShiftMatches } from '../utils/shifts';
+import { listShiftAssignments } from './shifts';
 
 const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin']);
 
@@ -21,6 +23,16 @@ const DAILY_SUMMARY_SELECT =
 function startOfTodayIso() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+}
+
+function dateInputValue(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function addDays(date, amount) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + amount);
+  return nextDate;
 }
 
 function normalizeReading(row, siteType) {
@@ -102,16 +114,23 @@ export async function getProfile(userId) {
 
 export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const todayIso = startOfTodayIso();
+  const today = new Date(todayIso);
+  const shiftAssignmentRange = {
+    fromDate: dateInputValue(addDays(today, -1)),
+    toDate: dateInputValue(addDays(today, 7)),
+  };
 
   const [
     pendingApprovals,
     totalOperators,
     approvedOperators,
     sitesCount,
+    sites,
     todaySummaries,
     recentSummaries,
     profiles,
     operators,
+    shiftAssignmentsResult,
     monthlySummaries,
   ] = await Promise.all([
     supabase
@@ -129,6 +148,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .eq('is_active', true)
       .eq('is_approved', true),
     supabase.from('sites').select('id', { count: 'exact', head: true }),
+    supabase.from('sites').select('id, name, type').order('type', { ascending: true }).order('name', { ascending: true }),
     supabase
       .from('daily_site_summaries')
       .select('id', { count: 'exact', head: true })
@@ -149,6 +169,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .eq('role', 'operator')
       .order('full_name', { ascending: true, nullsFirst: false })
       .order('email', { ascending: true, nullsFirst: false }),
+    listShiftAssignments(shiftAssignmentRange),
     supabase
       .from('daily_site_summaries')
       .select(DAILY_SUMMARY_SELECT)
@@ -160,16 +181,21 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
   throwIfError(totalOperators, 'Failed to count operators.');
   throwIfError(approvedOperators, 'Failed to count approved operators.');
   throwIfError(sitesCount, 'Failed to count sites.');
+  throwIfError(sites, 'Failed to load sites.');
   throwIfError(todaySummaries, 'Failed to count daily site summaries.');
   throwIfError(recentSummaries, 'Failed to load recent daily site summaries.');
   throwIfError(profiles, 'Failed to load accounts.');
   throwIfError(operators, 'Failed to load operators.');
   throwIfError(monthlySummaries, 'Failed to load monthly daily site summaries.');
 
-  const recentReadings = (recentSummaries.data ?? [])
+  const shiftAssignments = shiftAssignmentsResult.assignments ?? [];
+  const recentReadings = enrichReadingsWithShiftMatches(
+    (recentSummaries.data ?? [])
     .map(normalizeDailySummary)
     .sort(sortByCreatedAtDesc)
-    .slice(0, limit);
+      .slice(0, limit),
+    shiftAssignments
+  );
   const monthlyRows = (monthlySummaries.data ?? []).map(normalizeDailySummary);
   const monthlyChlorination = monthlyRows.filter((row) => row.site_type === 'CHLORINATION');
   const monthlyDeepwell = monthlyRows.filter((row) => row.site_type === 'DEEPWELL');
@@ -186,6 +212,9 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     recentReadings,
     profiles: profiles.data ?? [],
     operators: operators.data ?? [],
+    sites: sites.data ?? [],
+    shiftAssignments,
+    shiftAssignmentsSetupRequired: shiftAssignmentsResult.setupRequired,
     monthlyProduction: buildMonthlyProduction(monthlyChlorination),
     monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination),
     dailyProduction: buildDailyProduction(monthlyChlorination),
