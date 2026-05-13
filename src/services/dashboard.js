@@ -5,10 +5,12 @@ import {
   buildDailyProductionMonths,
   buildDailyProductionYears,
   buildMonthlyChemicalUsage,
+  buildMonthlyChemicalUsageYears,
   buildMonthlyPowerConsumption,
+  buildMonthlyPowerConsumptionYears,
   buildMonthlyProduction,
   buildMonthlyProductionYears,
-  startOfMonthlyProductionSourceIso,
+  startOfYearlyAnalyticsSourceIso,
 } from '../utils/production';
 
 const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin']);
@@ -150,7 +152,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     supabase
       .from('daily_site_summaries')
       .select(DAILY_SUMMARY_SELECT)
-      .gte('summary_date', startOfMonthlyProductionSourceIso().slice(0, 10))
+      .gte('summary_date', startOfYearlyAnalyticsSourceIso().slice(0, 10))
       .order('summary_date', { ascending: true }),
   ]);
 
@@ -190,7 +192,12 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     dailyProductionMonths: buildDailyProductionMonths(monthlyChlorination),
     dailyProductionYears: buildDailyProductionYears(monthlyChlorination),
     monthlyChemicalUsage: buildMonthlyChemicalUsage(monthlyChlorination),
+    monthlyChemicalUsageYears: buildMonthlyChemicalUsageYears(monthlyChlorination),
     monthlyPowerConsumption: buildMonthlyPowerConsumption({
+      chlorinationReadings: monthlyChlorination,
+      deepwellReadings: monthlyDeepwell,
+    }),
+    monthlyPowerConsumptionYears: buildMonthlyPowerConsumptionYears({
       chlorinationReadings: monthlyChlorination,
       deepwellReadings: monthlyDeepwell,
     }),

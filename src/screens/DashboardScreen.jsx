@@ -89,6 +89,7 @@ export default function DashboardScreen({
   loading,
   message,
   profile,
+  refreshing,
   themeMode,
   workingId,
   onApprove,
@@ -171,6 +172,7 @@ export default function DashboardScreen({
       <OverviewScreen
         dashboard={dashboard}
         isAdmin={isAdmin}
+        refreshing={refreshing}
         activeSection={dashboardSection}
         scrollRequest={dashboardScrollRequest}
         onVisibleSectionsChange={setVisibleDashboardSections}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, Eye, FileText, Filter, Grid2X2, List, RefreshCw, Search, Table2, X } from 'lucide-react';
 import { listReadings } from '../services/readings';
 import { aggregateDailyRows } from '../utils/production';
@@ -284,15 +284,32 @@ async function buildXlsxBlob(sheets) {
   });
 }
 
-function ExportMenu({ exporting, open, onToggle, onSelect }) {
+function ExportMenu({ exporting, open, onToggle, onSelect, onClose }) {
+  const menuRef = useRef(null);
   const options = [
     { key: 'csv', label: '.csv', icon: FileText },
     { key: 'xlsx', label: '.xlsx', icon: Grid2X2 },
     { key: 'pdf', label: '.pdf', icon: FileText },
   ];
 
+  useEffect(() => {
+    function closeOutside(event) {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        onClose();
+      }
+    }
+
+    document.addEventListener('mousedown', closeOutside);
+    document.addEventListener('focusin', closeOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', closeOutside);
+      document.removeEventListener('focusin', closeOutside);
+    };
+  }, [onClose]);
+
   return (
-    <div className="readings-export-menu">
+    <div className="readings-export-menu" ref={menuRef}>
       <button type="button" className="export-button" disabled={exporting} onClick={onToggle}>
         <FileText size={17} />
         {exporting ? 'Exporting...' : 'Export'}
@@ -735,6 +752,7 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
               exporting={exporting}
               open={exportOpen}
               onToggle={() => setExportOpen((current) => !current)}
+              onClose={() => setExportOpen(false)}
               onSelect={(nextFormat) => {
                 setExportFormat(nextFormat);
                 handleExport(nextFormat);
