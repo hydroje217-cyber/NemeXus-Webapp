@@ -198,6 +198,68 @@
   color: #e4faff;
 }
 
+.dark-mode .monthly-production-year-picker > span,
+.dark-mode .power-year-picker > span,
+.dark-mode .chemical-year-picker > span {
+  color: #9db1bb;
+}
+
+.dark-mode .monthly-production-year-button,
+.dark-mode .power-year-button,
+.dark-mode .chemical-year-button {
+  border-color: rgba(121, 219, 230, 0.28);
+  background: linear-gradient(180deg, #102333, #0d1b28);
+  color: #e4faff;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.dark-mode .monthly-production-year-button strong,
+.dark-mode .power-year-button strong,
+.dark-mode .chemical-year-button strong {
+  color: #f0f7f8;
+}
+
+.dark-mode .monthly-production-year-button svg,
+.dark-mode .power-year-button svg,
+.dark-mode .chemical-year-button svg {
+  color: #79dbe6;
+}
+
+.dark-mode .monthly-production-year-button svg:last-child,
+.dark-mode .power-year-button svg:last-child,
+.dark-mode .chemical-year-button svg:last-child {
+  color: #b7d2da;
+}
+
+.dark-mode .monthly-production-year-menu,
+.dark-mode .power-year-menu,
+.dark-mode .chemical-year-menu {
+  border-color: rgba(121, 219, 230, 0.28);
+  background: rgba(13, 27, 40, 0.96);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.34), 0 0 26px rgba(20, 166, 181, 0.1);
+}
+
+.dark-mode .monthly-production-year-menu button,
+.dark-mode .power-year-menu button,
+.dark-mode .chemical-year-menu button {
+  color: #d6e5e9;
+}
+
+.dark-mode .monthly-production-year-menu button:hover,
+.dark-mode .power-year-menu button:hover,
+.dark-mode .chemical-year-menu button:hover {
+  background: rgba(20, 166, 181, 0.12);
+  color: #9be8f0;
+}
+
+.dark-mode .monthly-production-year-menu button.active,
+.dark-mode .power-year-menu button.active,
+.dark-mode .chemical-year-menu button.active {
+  border-color: rgba(121, 219, 230, 0.36);
+  background: linear-gradient(135deg, #0a6672, #1398aa);
+  color: #ffffff;
+}
+
 .dark-mode .production-month-menu button {
   color: #e4f4f7;
   border-bottom-color: rgba(121, 219, 230, 0.1);
@@ -587,6 +649,141 @@
 
 .dark-mode .recharts-stack-label.dark {
   fill: #0f1b25;
+}
+
+.dark-mode .sidebar {
+  background:
+    linear-gradient(180deg, rgba(17, 28, 39, 0.96), rgba(11, 20, 30, 0.98)),
+    #111c27;
+  border-color: rgba(45, 70, 84, 0.9);
+}
+
+.dark-mode .brand-menu-trigger {
+  background: rgba(15, 27, 37, 0.72);
+  border-color: rgba(45, 70, 84, 0.86);
+}
+
+.dark-mode .brand-menu-trigger:hover,
+.dark-mode .brand-menu-trigger[aria-expanded="true"] {
+  background: rgba(23, 51, 66, 0.9);
+  border-color: rgba(121, 219, 230, 0.34);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+}
+
+.dark-mode .tabs button:hover,
+.dark-mode .secondary-button:hover {
+  background: #142536;
+  border-color: #2d4654;
+  color: #79dbe6;
+}
+
+.dark-mode .tabs button.active {
+  background: linear-gradient(135deg, #173342, #14382f);
+  border-color: rgba(121, 219, 230, 0.32);
+  box-shadow: inset 3px 0 0 #35c8d6, 0 12px 26px rgba(0, 0, 0, 0.22);
+}
+
+.dark-mode .topbar {
+  border-color: rgba(45, 70, 84, 0.82);
+  background: rgba(17, 28, 39, 0.82);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.25);
+}
+
+.dark-mode .topbar h2 {
+  color: #f0f7f8;
+}
+
+.dark-mode .refresh-button {
+  border-color: #35c8d6;
+  background: linear-gradient(135deg, #0a6672, #1398aa);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
+}
+
+.dark-mode .metric-card,
+.dark-mode .operation-alerts-panel,
+.dark-mode .live-summary-panel,
+.dark-mode .analytics-panel,
+.dark-mode .recent-readings-panel,
+.dark-mode .operator-list-panel,
+.dark-mode .panel {
+  background:
+    linear-gradient(180deg, rgba(20, 36, 50, 0.92), rgba(15, 27, 37, 0.96)),
+    #111c27;
+  border-color: rgba(45, 70, 84, 0.9);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+.dark-mode .metric-card:hover,
+.dark-mode .live-summary-card:hover,
+.dark-mode .recent-reading-card:hover,
+.dark-mode .operator-card:hover,
+.dark-mode .checkpoint-site-card:hover,
+.dark-mode .operation-alert-card:hover {
+  border-color: rgba(121, 219, 230, 0.34);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.3);
+}
+
+.dark-mode .metric-icon,
+.dark-mode .section-icon,
+.dark-mode .live-summary-icon,
+.dark-mode .summary-pill .summary-icon,
+.dark-mode .checkpoint-marker {
+  background: linear-gradient(135deg, #173342, #14382f);
+  border-color: #2e6270;
+  color: #79dbe6;
+}
+
+.dark-mode .live-summary-card,
+.dark-mode .summary-pill,
+.dark-mode .checkpoint-stat-grid > div,
+.dark-mode .checkpoint-site-card,
+.dark-mode .recent-reading-meta > div {
+  background: rgba(15, 27, 37, 0.88);
+  border-color: #2b4351;
+}
+
+.dark-mode .live-summary-card::before,
+.dark-mode .summary-pill::before {
+  background: linear-gradient(180deg, #79dbe6, #7addb4);
+}
+
+.dark-mode .operation-alert-card {
+  background: rgba(15, 27, 37, 0.88);
+  border-color: #2b4351;
+}
+
+.dark-mode .chart-toolbar,
+.dark-mode .chart-frame {
+  background: rgba(15, 27, 37, 0.78);
+  border-color: #2b4351;
+}
+
+.dark-mode .chart-toolbar button {
+  background: #111f2c;
+  border-color: #2d4654;
+  color: #d6e5e9;
+}
+
+.dark-mode .chart-toolbar button:nth-child(2) {
+  background: #173342;
+  border-color: #2e6270;
+}
+
+.dark-mode .panel-heading,
+.dark-mode th {
+  background: rgba(13, 24, 34, 0.9);
+}
+
+.dark-mode tbody tr:hover td {
+  background: #142536;
+}
+
+.dark-mode .chart-scroll,
+.dark-mode .recent-reading-scroll,
+.dark-mode .operator-card-scroll,
+.dark-mode .checkpoint-scroll,
+.dark-mode .operation-alert-scroll {
+  scrollbar-color: #35c8d6 #08141f;
 }
 
 @keyframes spin {
@@ -1115,11 +1312,16 @@
     padding: 14px;
   }
 
-  .analytics-heading,
   .recent-readings-heading,
   .operator-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .analytics-heading {
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
   .readings-filter-header {
@@ -1180,28 +1382,30 @@
     align-self: start;
   }
 
-  .analytics-heading {
-    flex-direction: column;
-  }
-
   .chart-toolbar {
     opacity: 1;
-    flex: 1 1 auto;
-    width: 100%;
-    align-items: stretch;
-    flex-direction: column;
+    flex: 0 0 184px;
+    width: 184px;
+    align-items: center;
+    flex-direction: row;
   }
 
   .chart-toolbar > div {
-    display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    display: inline-flex;
     width: 100%;
   }
 
   .chart-toolbar button,
   .chart-toolbar button:nth-child(2) {
-    width: 100%;
-    min-width: 0;
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
+  }
+
+  .chart-toolbar button:nth-child(2) {
+    width: auto;
+    min-width: 92px;
   }
 
   .summary-pill {
@@ -1366,7 +1570,32 @@
     grid-template-columns: 1fr;
   }
 
-  .monthly-production-heading {
+  .monthly-production-heading,
+  .power-consumption-heading,
+  .chemical-usage-heading {
+    grid-template-columns: auto minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .monthly-production-year-picker,
+  .power-year-picker,
+  .chemical-year-picker {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .monthly-production-year-menu,
+  .power-year-menu,
+  .chemical-year-menu {
+    left: 0;
+    right: auto;
+    width: 100%;
+  }
+
+  .analytics-heading .chart-toolbar {
+    flex-basis: 100%;
     width: 100%;
   }
 

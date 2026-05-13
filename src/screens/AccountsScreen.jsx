@@ -114,8 +114,14 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
       )}
 
       {pendingDeleteAccount ? (
-        <div className="modal-backdrop" role="presentation">
-          <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-account-title">
+        <div className="modal-backdrop" role="presentation" onClick={() => setPendingDeleteAccount(null)}>
+          <div
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-title"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               className="dialog-close-button"
               type="button"
@@ -143,8 +149,14 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
       ) : null}
 
       {pendingRoleChange ? (
-        <div className="modal-backdrop" role="presentation">
-          <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="role-change-title">
+        <div className="modal-backdrop" role="presentation" onClick={() => setPendingRoleChange(null)}>
+          <div
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="role-change-title"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               className="dialog-close-button"
               type="button"

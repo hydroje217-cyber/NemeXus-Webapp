@@ -22,13 +22,15 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    linear-gradient(180deg, rgba(226, 237, 239, 0.88), rgba(244, 247, 248, 0.96)),
+    linear-gradient(180deg, rgba(229, 239, 242, 0.96), rgba(246, 249, 250, 0.98)),
+    linear-gradient(115deg, rgba(19, 152, 170, 0.08), rgba(212, 148, 39, 0.06) 48%, rgba(22, 163, 74, 0.05)),
     #f4f7f8;
 }
 
 :root[data-theme="dark"] body {
   background:
-    linear-gradient(180deg, rgba(17, 35, 59, 0.78), rgba(14, 21, 29, 0.98)),
+    linear-gradient(180deg, rgba(12, 23, 35, 0.96), rgba(7, 12, 19, 0.99)),
+    linear-gradient(115deg, rgba(19, 152, 170, 0.11), rgba(212, 148, 39, 0.06) 50%, rgba(22, 163, 74, 0.06)),
     #0e151d;
 }
 
@@ -471,19 +473,21 @@ select {
 .brand-menu-trigger {
   width: 100%;
   min-height: 0;
-  padding: 8px;
+  padding: 10px;
   justify-content: flex-start;
-  background: transparent;
+  background: rgba(237, 245, 246, 0.72);
   color: #18212d;
   text-align: left;
-  border: 1px solid transparent;
+  border: 1px solid #dce9ec;
   border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .brand-menu-trigger:hover,
 .brand-menu-trigger[aria-expanded="true"] {
-  background: #edf5f6;
-  border-color: #d1e4e8;
+  background: #ffffff;
+  border-color: #b7d9df;
+  box-shadow: 0 14px 30px rgba(24, 33, 45, 0.09);
 }
 
 .brand-copy {
@@ -513,17 +517,18 @@ select {
 }
 
 .brand-mark {
-  width: 44px;
-  height: 44px;
+  width: 46px;
+  height: 46px;
   border-radius: 8px;
-  background: #050817;
-  border: 1px solid #1a637e;
+  background: linear-gradient(135deg, #050817, #0e4052);
+  border: 1px solid rgba(53, 200, 214, 0.55);
   color: #ffffff;
   display: grid;
   place-items: center;
   font-weight: 800;
   overflow: hidden;
   flex: 0 0 auto;
+  box-shadow: 0 10px 24px rgba(10, 55, 68, 0.2);
 }
 
 .brand-mark img {
@@ -544,8 +549,8 @@ select {
   border: 1px solid #cfe0e5;
   border-radius: 8px;
   background: #ffffff;
-  box-shadow: 0 20px 46px rgba(24, 33, 45, 0.22);
-  padding: 6px;
+  box-shadow: 0 22px 54px rgba(24, 33, 45, 0.2);
+  padding: 8px;
 }
 
 .brand-dropdown button {
@@ -635,15 +640,16 @@ select {
   width: 320px;
   max-width: calc(100vw - 22px);
   height: 100vh;
-  background: #ffffff;
-  border-right: 1px solid #dbe5e8;
+  background: rgba(255, 255, 255, 0.92);
+  border-right: 1px solid rgba(207, 224, 229, 0.92);
   display: flex;
   flex-direction: column;
   gap: 24px;
   padding: 22px;
   overflow-y: auto;
   scrollbar-gutter: stable;
-  box-shadow: 22px 0 52px rgba(24, 33, 45, 0.18);
+  box-shadow: 22px 0 58px rgba(24, 33, 45, 0.16);
+  backdrop-filter: blur(18px);
   transform: translateX(calc(-100% - 24px));
   transition: transform 0.22s ease;
 }
@@ -664,9 +670,10 @@ select {
   padding: 0;
   border: 1px solid #cfe0e5;
   border-radius: 8px;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.9);
   color: #0b5e68;
-  box-shadow: 0 14px 32px rgba(24, 33, 45, 0.13);
+  box-shadow: 0 14px 32px rgba(24, 33, 45, 0.14);
+  backdrop-filter: blur(12px);
   transition: left 0.22s ease, background 0.18s ease, color 0.18s ease;
 }
 
@@ -683,7 +690,8 @@ select {
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: rgba(9, 18, 28, 0.46);
+  background: rgba(9, 18, 28, 0.52);
+  backdrop-filter: blur(4px);
   cursor: default;
 }
 
@@ -697,7 +705,7 @@ select {
 
 .tabs {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .tab-group {
@@ -710,11 +718,22 @@ select {
   justify-content: flex-start;
   background: transparent;
   color: #4b5d66;
+  border: 1px solid transparent;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.tabs button:hover,
+.secondary-button:hover {
+  background: #f1f7f8;
+  border-color: #d5e7eb;
+  color: #0b5e68;
 }
 
 .tabs button.active {
-  background: #e7f1f2;
+  background: linear-gradient(135deg, #e7f8fa, #edf5ef);
+  border-color: #b8e3e7;
   color: #0b5e68;
+  box-shadow: inset 3px 0 0 #1398aa, 0 10px 22px rgba(19, 152, 170, 0.1);
 }
 
 .tabs-subnav {
@@ -767,7 +786,7 @@ select {
 }
 
 .tabs-subnav button.active {
-  background: #eeeeee;
+  background: #eef7f8;
   color: #0b5e68;
   font-weight: 800;
 }
@@ -777,9 +796,9 @@ select {
 }
 
 .content {
-  padding: 14px 10px 10px 74px;
+  padding: 18px 14px 18px 78px;
   display: grid;
-  gap: 20px;
+  gap: 22px;
   align-content: start;
 }
 

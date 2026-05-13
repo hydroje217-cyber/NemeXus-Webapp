@@ -59,6 +59,7 @@ function ZoomControls({ zoomLevel, onZoomIn, onZoomOut, onReset }) {
 }
 
 function ChartPanel({
+  busy = false,
   title,
   titleControl,
   icon: Icon,
@@ -74,9 +75,10 @@ function ChartPanel({
   children,
 }) {
   return (
-    <section className="analytics-panel" ref={panelRef}>
+    <section className={busy ? 'analytics-panel is-refreshing' : 'analytics-panel'} ref={panelRef} aria-busy={busy}>
+      {busy ? <span className="panel-refresh-indicator" aria-hidden="true" /> : null}
       <header className="analytics-heading">
-        <div>
+        <div className="analytics-title-group">
           {titleControl || (
             <>
               <span className="section-icon">
@@ -86,6 +88,7 @@ function ChartPanel({
             </>
           )}
         </div>
+        <ZoomControls zoomLevel={zoomLevel} onZoomIn={onZoomIn} onZoomOut={onZoomOut} onReset={onReset} />
       </header>
       <div className={summaryItems?.length ? 'summary-pill-grid' : undefined}>
         {(summaryItems?.length ? summaryItems : [{ label: summaryLabel, value: summaryValue, hint: summaryHint, icon: Icon }]).map((item) => {
@@ -104,7 +107,6 @@ function ChartPanel({
           );
         })}
       </div>
-      <ZoomControls zoomLevel={zoomLevel} onZoomIn={onZoomIn} onZoomOut={onZoomOut} onReset={onReset} />
       {children}
     </section>
   );
@@ -130,6 +132,60 @@ function getCurrentMonthKey() {
 
 function getCurrentYear() {
   return new Date().getFullYear();
+}
+
+function getStoredNumber(key, fallback) {
+  if (typeof window === 'undefined') {
+    return fallback;
+  }
+
+  const parsed = Number(window.localStorage.getItem(key));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function setStoredNumber(key, value) {
+  if (typeof window === 'undefined' || !Number.isFinite(value)) {
+    return;
+  }
+
+  window.localStorage.setItem(key, String(value));
+}
+
+function YearDropdown({ classPrefix, isOpen, onToggle, onSelect, pickerRef, selectedYear, years }) {
+  return (
+    <div className={`${classPrefix}-year-picker`} ref={pickerRef}>
+      <span>Year</span>
+      <button
+        type="button"
+        className={`${classPrefix}-year-button`}
+        aria-expanded={isOpen}
+        onClick={onToggle}
+      >
+        <CalendarDays size={17} />
+        <strong>{selectedYear}</strong>
+        <ChevronDown size={17} />
+      </button>
+      {isOpen ? (
+        <div className={`${classPrefix}-year-menu`}>
+          {years.map((year) => {
+            const isSelected = selectedYear === year;
+
+            return (
+              <button
+                type="button"
+                key={year}
+                className={isSelected ? 'active' : undefined}
+                onClick={() => onSelect(year)}
+              >
+                <span>{year}</span>
+                {isSelected ? <CheckCircle2 size={16} /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function formatDailyLabel(date) {
@@ -312,7 +368,7 @@ function SimpleBarChart({ rows, valueKey, emptyMessage, zoomLevel, daily = false
   );
 }
 
-function StackedPowerChart({ rows, zoomLevel, daily = false }) {
+function StackedPowerChart({ rows, zoomLevel, daily = false, emptyMessage = 'Monthly power consumption will appear after power values are saved.' }) {
   const visibleRows = rows ?? [];
   const chartRows = visibleRows.map((row) =>
     createOrderedStackRow(
@@ -373,7 +429,7 @@ function StackedPowerChart({ rows, zoomLevel, daily = false }) {
         <span><i className="legend-swatch chlorination" />Chlorination</span>
         <span><i className="legend-swatch deepwell" />Deepwell</span>
       </div>
-      {!hasData ? <p className="chart-empty">Monthly power consumption will appear after power values are saved.</p> : null}
+      {!hasData ? <p className="chart-empty">{emptyMessage}</p> : null}
     </>
   );
 }
@@ -430,7 +486,7 @@ function isReadingInDateRange(reading, range) {
   return true;
 }
 
-function StackedChemicalChart({ rows, zoomLevel }) {
+function StackedChemicalChart({ rows, zoomLevel, emptyMessage = 'Monthly chemical usage will appear after chlorine and peroxide values are saved.' }) {
   const visibleRows = rows ?? [];
   const chartRows = visibleRows.map((row) =>
     createOrderedStackRow(
@@ -491,7 +547,7 @@ function StackedChemicalChart({ rows, zoomLevel }) {
         <span><i className="legend-swatch chemical-chlorine" />Chlorine</span>
         <span><i className="legend-swatch chemical-peroxide" />Peroxide</span>
       </div>
-      {!hasData ? <p className="chart-empty">Monthly chemical usage will appear after chlorine and peroxide values are saved.</p> : null}
+      {!hasData ? <p className="chart-empty">{emptyMessage}</p> : null}
     </>
   );
 }
@@ -1152,6 +1208,7 @@ function RecentReadingsPanel({ readings }) {
 export default function OverviewScreen({
   dashboard,
   isAdmin,
+  refreshing = false,
   activeSection = 'production',
   scrollRequest = 0,
   onOpenApprovals,
@@ -1160,10 +1217,23 @@ export default function OverviewScreen({
   const [powerZoom, setPowerZoom] = useState(1);
   const [chemicalZoom, setChemicalZoom] = useState(1);
   const [monthlyProductionZoom, setMonthlyProductionZoom] = useState(1);
-  const [selectedMonthlyProductionYear, setSelectedMonthlyProductionYear] = useState(getCurrentYear);
+  const [selectedMonthlyProductionYear, setSelectedMonthlyProductionYear] = useState(() =>
+    getStoredNumber('nemexus-monthly-production-year', getCurrentYear())
+  );
+  const [monthlyProductionYearMenuOpen, setMonthlyProductionYearMenuOpen] = useState(false);
+  const [selectedPowerConsumptionYear, setSelectedPowerConsumptionYear] = useState(() =>
+    getStoredNumber('nemexus-power-consumption-year', getCurrentYear())
+  );
+  const [powerYearMenuOpen, setPowerYearMenuOpen] = useState(false);
+  const [selectedChemicalUsageYear, setSelectedChemicalUsageYear] = useState(() =>
+    getStoredNumber('nemexus-chemical-usage-year', getCurrentYear())
+  );
+  const [chemicalYearMenuOpen, setChemicalYearMenuOpen] = useState(false);
   const [dailyProductionZoom, setDailyProductionZoom] = useState(1);
   const [dailyProductionMonthMenuOpen, setDailyProductionMonthMenuOpen] = useState(false);
-  const [selectedDailyProductionYear, setSelectedDailyProductionYear] = useState(getCurrentYear);
+  const [selectedDailyProductionYear, setSelectedDailyProductionYear] = useState(() =>
+    getStoredNumber('nemexus-daily-production-year', getCurrentYear())
+  );
   const [selectedDailyProductionMonthKey, setSelectedDailyProductionMonthKey] = useState(getCurrentMonthKey);
   const summaryRef = useRef(null);
   const operationsRef = useRef(null);
@@ -1171,6 +1241,10 @@ export default function OverviewScreen({
   const powerRef = useRef(null);
   const chemicalRef = useRef(null);
   const activityRef = useRef(null);
+  const monthlyProductionYearPickerRef = useRef(null);
+  const dailyProductionMonthPickerRef = useRef(null);
+  const powerYearPickerRef = useRef(null);
+  const chemicalYearPickerRef = useRef(null);
   const monthlyProduction = dashboard?.monthlyProduction ?? { totalProduction: 0, averageProduction: 0, rows: [] };
   const monthlyProductionYears = dashboard?.monthlyProductionYears ?? [{ year: selectedMonthlyProductionYear, ...monthlyProduction }];
   const selectedMonthlyProduction =
@@ -1184,7 +1258,19 @@ export default function OverviewScreen({
   const selectedDailyProduction =
     selectedYearMonths.find((month) => month.key === selectedDailyProductionMonthKey) || selectedYearMonths[0] || dailyProduction;
   const monthlyPowerConsumption = dashboard?.monthlyPowerConsumption ?? { totalPower: 0, rows: [] };
+  const monthlyPowerConsumptionYears =
+    dashboard?.monthlyPowerConsumptionYears ?? [{ year: selectedPowerConsumptionYear, ...monthlyPowerConsumption }];
+  const selectedPowerConsumption =
+    monthlyPowerConsumptionYears.find((yearData) => yearData.year === selectedPowerConsumptionYear) ||
+    monthlyPowerConsumptionYears[0] ||
+    monthlyPowerConsumption;
   const monthlyChemicalUsage = dashboard?.monthlyChemicalUsage ?? { totalChlorine: 0, totalPeroxide: 0, rows: [] };
+  const monthlyChemicalUsageYears =
+    dashboard?.monthlyChemicalUsageYears ?? [{ year: selectedChemicalUsageYear, ...monthlyChemicalUsage }];
+  const selectedChemicalUsage =
+    monthlyChemicalUsageYears.find((yearData) => yearData.year === selectedChemicalUsageYear) ||
+    monthlyChemicalUsageYears[0] ||
+    monthlyChemicalUsage;
   const activeDailyRows = selectedDailyProduction.rows.filter((row) => Number(row.production) > 0);
   const sectionRefs = {
     summary: summaryRef,
@@ -1208,6 +1294,80 @@ export default function OverviewScreen({
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }, [scrollRequest]);
+
+  useEffect(() => {
+    function closeDropdownsOutside(event) {
+      const dropdowns = [
+        { ref: monthlyProductionYearPickerRef, close: setMonthlyProductionYearMenuOpen },
+        { ref: dailyProductionMonthPickerRef, close: setDailyProductionMonthMenuOpen },
+        { ref: powerYearPickerRef, close: setPowerYearMenuOpen },
+        { ref: chemicalYearPickerRef, close: setChemicalYearMenuOpen },
+      ];
+
+      dropdowns.forEach(({ ref, close }) => {
+        if (ref.current && !ref.current.contains(event.target)) {
+          close(false);
+        }
+      });
+    }
+
+    document.addEventListener('mousedown', closeDropdownsOutside);
+    document.addEventListener('focusin', closeDropdownsOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', closeDropdownsOutside);
+      document.removeEventListener('focusin', closeDropdownsOutside);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (selectedMonthlyProduction.year && selectedMonthlyProduction.year !== selectedMonthlyProductionYear) {
+      setSelectedMonthlyProductionYear(selectedMonthlyProduction.year);
+    }
+  }, [selectedMonthlyProduction.year, selectedMonthlyProductionYear]);
+
+  useEffect(() => {
+    if (selectedPowerConsumption.year && selectedPowerConsumption.year !== selectedPowerConsumptionYear) {
+      setSelectedPowerConsumptionYear(selectedPowerConsumption.year);
+    }
+  }, [selectedPowerConsumption.year, selectedPowerConsumptionYear]);
+
+  useEffect(() => {
+    if (selectedChemicalUsage.year && selectedChemicalUsage.year !== selectedChemicalUsageYear) {
+      setSelectedChemicalUsageYear(selectedChemicalUsage.year);
+    }
+  }, [selectedChemicalUsage.year, selectedChemicalUsageYear]);
+
+  useEffect(() => {
+    if (selectedDailyProductionYearData?.year && selectedDailyProductionYearData.year !== selectedDailyProductionYear) {
+      setSelectedDailyProductionYear(selectedDailyProductionYearData.year);
+    }
+  }, [selectedDailyProductionYearData?.year, selectedDailyProductionYear]);
+
+  useEffect(() => {
+    if (
+      selectedYearMonths.length &&
+      !selectedYearMonths.some((month) => month.key === selectedDailyProductionMonthKey)
+    ) {
+      setSelectedDailyProductionMonthKey(selectedYearMonths[0].key);
+    }
+  }, [selectedDailyProductionMonthKey, selectedYearMonths]);
+
+  useEffect(() => {
+    setStoredNumber('nemexus-monthly-production-year', selectedMonthlyProduction.year || selectedMonthlyProductionYear);
+  }, [selectedMonthlyProduction.year, selectedMonthlyProductionYear]);
+
+  useEffect(() => {
+    setStoredNumber('nemexus-power-consumption-year', selectedPowerConsumption.year || selectedPowerConsumptionYear);
+  }, [selectedPowerConsumption.year, selectedPowerConsumptionYear]);
+
+  useEffect(() => {
+    setStoredNumber('nemexus-chemical-usage-year', selectedChemicalUsage.year || selectedChemicalUsageYear);
+  }, [selectedChemicalUsage.year, selectedChemicalUsageYear]);
+
+  useEffect(() => {
+    setStoredNumber('nemexus-daily-production-year', selectedDailyProductionYearData?.year || selectedDailyProductionYear);
+  }, [selectedDailyProductionYearData?.year, selectedDailyProductionYear]);
 
   useEffect(() => {
     if (!onVisibleSectionsChange || typeof window === 'undefined') {
@@ -1274,25 +1434,25 @@ export default function OverviewScreen({
           summaryValue={formatNumber(selectedMonthlyProduction.totalProduction)}
           summaryHint={`${selectedMonthlyProduction.year || selectedMonthlyProductionYear} months`}
           panelRef={productionRef}
+          busy={refreshing}
           titleControl={
             <div className="monthly-production-heading">
               <span className="section-icon">
                 <BarChart3 size={16} />
               </span>
               <h3>Monthly Production</h3>
-              <label className="production-year-select compact">
-                <span>Year</span>
-                <select
-                  value={selectedMonthlyProduction.year || selectedMonthlyProductionYear}
-                  onChange={(event) => setSelectedMonthlyProductionYear(Number(event.target.value))}
-                >
-                  {monthlyProductionYears.map((yearData) => (
-                    <option key={yearData.year} value={yearData.year}>
-                      {yearData.year}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <YearDropdown
+                classPrefix="monthly-production"
+                isOpen={monthlyProductionYearMenuOpen}
+                onToggle={() => setMonthlyProductionYearMenuOpen((isOpen) => !isOpen)}
+                onSelect={(year) => {
+                  setSelectedMonthlyProductionYear(year);
+                  setMonthlyProductionYearMenuOpen(false);
+                }}
+                pickerRef={monthlyProductionYearPickerRef}
+                selectedYear={selectedMonthlyProduction.year || selectedMonthlyProductionYear}
+                years={monthlyProductionYears.map((yearData) => yearData.year)}
+              />
             </div>
           }
           {...zoomProps(monthlyProductionZoom, setMonthlyProductionZoom)}
@@ -1300,7 +1460,7 @@ export default function OverviewScreen({
           <SimpleBarChart
             rows={selectedMonthlyProduction.rows}
             valueKey="production"
-            emptyMessage="Monthly production will appear after readings with totalizer values are saved."
+            emptyMessage={`No monthly production saved for ${selectedMonthlyProduction.year || selectedMonthlyProductionYear}.`}
             zoomLevel={monthlyProductionZoom}
           />
         </ChartPanel>
@@ -1308,7 +1468,7 @@ export default function OverviewScreen({
         <ChartPanel
           title={`${selectedDailyProduction.monthLabel || 'Current Month'} Production`}
           titleControl={
-            <div className="production-month-picker">
+            <div className="production-month-picker" ref={dailyProductionMonthPickerRef}>
               <button
                 type="button"
                 className="chart-title-dropdown"
@@ -1371,6 +1531,7 @@ export default function OverviewScreen({
           summaryLabel="Current Month"
           summaryValue={formatNumber(selectedDailyProduction.totalProduction)}
           summaryHint={`${activeDailyRows.length} active day(s)`}
+          busy={refreshing}
           {...zoomProps(dailyProductionZoom, setDailyProductionZoom)}
         >
           <SimpleBarChart
@@ -1386,35 +1547,85 @@ export default function OverviewScreen({
           title="Monthly Power Consumption"
           icon={Zap}
           summaryLabel="Total Power"
-          summaryValue={formatNumber(monthlyPowerConsumption.totalPower)}
-          summaryHint="Latest 10 months"
+          summaryValue={formatNumber(selectedPowerConsumption.totalPower)}
+          summaryHint={`${selectedPowerConsumption.year || selectedPowerConsumptionYear} months`}
           panelRef={powerRef}
+          busy={refreshing}
+          titleControl={
+            <div className="power-consumption-heading">
+              <span className="section-icon">
+                <Zap size={16} />
+              </span>
+              <h3>Monthly Power Consumption</h3>
+              <YearDropdown
+                classPrefix="power"
+                isOpen={powerYearMenuOpen}
+                onToggle={() => setPowerYearMenuOpen((isOpen) => !isOpen)}
+                onSelect={(year) => {
+                  setSelectedPowerConsumptionYear(year);
+                  setPowerYearMenuOpen(false);
+                }}
+                pickerRef={powerYearPickerRef}
+                selectedYear={selectedPowerConsumption.year || selectedPowerConsumptionYear}
+                years={monthlyPowerConsumptionYears.map((yearData) => yearData.year)}
+              />
+            </div>
+          }
           {...zoomProps(powerZoom, setPowerZoom)}
         >
-          <StackedPowerChart rows={monthlyPowerConsumption.rows} zoomLevel={powerZoom} />
+          <StackedPowerChart
+            rows={selectedPowerConsumption.rows}
+            zoomLevel={powerZoom}
+            emptyMessage={`No power consumption saved for ${selectedPowerConsumption.year || selectedPowerConsumptionYear}.`}
+          />
         </ChartPanel>
 
         <ChartPanel
           title="Monthly Chemical Usage"
           icon={FlaskConical}
           panelRef={chemicalRef}
+          busy={refreshing}
+          titleControl={
+            <div className="chemical-usage-heading">
+              <span className="section-icon">
+                <FlaskConical size={16} />
+              </span>
+              <h3>Monthly Chemical Usage</h3>
+              <YearDropdown
+                classPrefix="chemical"
+                isOpen={chemicalYearMenuOpen}
+                onToggle={() => setChemicalYearMenuOpen((isOpen) => !isOpen)}
+                onSelect={(year) => {
+                  setSelectedChemicalUsageYear(year);
+                  setChemicalYearMenuOpen(false);
+                }}
+                pickerRef={chemicalYearPickerRef}
+                selectedYear={selectedChemicalUsage.year || selectedChemicalUsageYear}
+                years={monthlyChemicalUsageYears.map((yearData) => yearData.year)}
+              />
+            </div>
+          }
           summaryItems={[
             {
               label: 'Total Chlorine',
-              value: formatNumber(monthlyChemicalUsage.totalChlorine),
-              hint: 'Latest 10 months',
+              value: formatNumber(selectedChemicalUsage.totalChlorine),
+              hint: `${selectedChemicalUsage.year || selectedChemicalUsageYear} months`,
               icon: Droplets,
             },
             {
               label: 'Total Peroxide',
-              value: formatNumber(monthlyChemicalUsage.totalPeroxide),
-              hint: 'Latest 10 months',
+              value: formatNumber(selectedChemicalUsage.totalPeroxide),
+              hint: `${selectedChemicalUsage.year || selectedChemicalUsageYear} months`,
               icon: FlaskConical,
             },
           ]}
           {...zoomProps(chemicalZoom, setChemicalZoom)}
         >
-          <StackedChemicalChart rows={monthlyChemicalUsage.rows} zoomLevel={chemicalZoom} />
+          <StackedChemicalChart
+            rows={selectedChemicalUsage.rows}
+            zoomLevel={chemicalZoom}
+            emptyMessage={`No chemical usage saved for ${selectedChemicalUsage.year || selectedChemicalUsageYear}.`}
+          />
         </ChartPanel>
         <OperatorsPanel operators={dashboard?.operators ?? []} panelRef={activityRef} />
         <RecentReadingsPanel readings={dashboard?.recentReadings ?? []} />

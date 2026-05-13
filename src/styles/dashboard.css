@@ -561,6 +561,7 @@
 }
 
 .analytics-panel {
+  position: relative;
   min-width: 0;
   background: #ffffff;
   border: 1px solid #dbe5e8;
@@ -569,6 +570,28 @@
   padding: 20px;
   display: grid;
   gap: 14px;
+}
+
+.analytics-panel.is-refreshing {
+  overflow: hidden;
+}
+
+.panel-refresh-indicator {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #35c8d6, #7addb4, transparent);
+  transform: translateX(-100%);
+  animation: panel-refresh-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes panel-refresh-sweep {
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .recent-readings-panel {
@@ -1058,14 +1081,18 @@
 .analytics-heading {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: nowrap;
 }
 
-.analytics-heading > div:first-child {
+.analytics-heading > div:first-child,
+.analytics-title-group {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex: 1 1 0;
   flex-wrap: wrap;
 }
 
@@ -1087,6 +1114,144 @@
 
 .monthly-production-heading h3 {
   margin-right: 4px;
+}
+
+.monthly-production-heading,
+.power-consumption-heading,
+.chemical-usage-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(184px, auto);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.monthly-production-heading h3,
+.power-consumption-heading h3,
+.chemical-usage-heading h3 {
+  min-width: 0;
+}
+
+.monthly-production-heading > .section-icon,
+.power-consumption-heading > .section-icon,
+.chemical-usage-heading > .section-icon,
+.monthly-production-heading h3,
+.power-consumption-heading h3,
+.chemical-usage-heading h3 {
+  align-self: center;
+}
+
+.monthly-production-year-picker,
+.power-year-picker,
+.chemical-year-picker {
+  position: relative;
+  display: block;
+  min-width: 184px;
+  justify-self: end;
+}
+
+.monthly-production-year-picker > span,
+.power-year-picker > span,
+.chemical-year-picker > span {
+  display: none;
+}
+
+.monthly-production-year-button,
+.power-year-button,
+.chemical-year-button {
+  width: 100%;
+  min-height: 52px;
+  justify-content: space-between;
+  gap: 9px;
+  border: 1px solid #b8dce3;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff, #edf8fa);
+  color: #102236;
+  padding: 0 11px;
+  box-shadow: 0 12px 24px rgba(19, 152, 170, 0.1);
+}
+
+.monthly-production-year-button svg,
+.power-year-button svg,
+.chemical-year-button svg {
+  flex: 0 0 auto;
+  color: #0f8f9f;
+}
+
+.monthly-production-year-button svg:last-child,
+.power-year-button svg:last-child,
+.chemical-year-button svg:last-child {
+  color: #60727c;
+  transition: transform 0.18s ease;
+}
+
+.monthly-production-year-button[aria-expanded="true"] svg:last-child,
+.power-year-button[aria-expanded="true"] svg:last-child,
+.chemical-year-button[aria-expanded="true"] svg:last-child {
+  transform: rotate(180deg);
+}
+
+.monthly-production-year-button strong,
+.power-year-button strong,
+.chemical-year-button strong {
+  color: #102236;
+  font-size: 0.98rem;
+  line-height: 1;
+}
+
+.monthly-production-year-menu,
+.power-year-menu,
+.chemical-year-menu {
+  position: absolute;
+  z-index: 55;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 100%;
+  min-width: 148px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #b8dce3;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 22px 54px rgba(24, 33, 45, 0.18), 0 0 30px rgba(19, 152, 170, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.monthly-production-year-menu button,
+.power-year-menu button,
+.chemical-year-menu button {
+  min-height: 38px;
+  justify-content: space-between;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #243b45;
+  padding: 0 10px;
+  font-weight: 900;
+}
+
+.monthly-production-year-menu button:hover,
+.power-year-menu button:hover,
+.chemical-year-menu button:hover {
+  background: rgba(19, 152, 170, 0.08);
+  color: #0b6470;
+}
+
+.monthly-production-year-menu button.active,
+.power-year-menu button.active,
+.chemical-year-menu button.active {
+  border-color: rgba(19, 152, 170, 0.26);
+  background: linear-gradient(135deg, #1398aa, #0f8f7c);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(19, 152, 170, 0.18);
+}
+
+.monthly-production-year-menu button.active svg,
+.power-year-menu button.active svg,
+.chemical-year-menu button.active svg {
+  color: #ffffff;
 }
 
 .production-month-picker {
@@ -1321,19 +1486,22 @@
 }
 
 .chart-toolbar {
-  min-height: 54px;
+  min-height: 52px;
   border: 1px solid #dbe5e8;
   border-radius: 8px;
   background: #f9fcff;
-  padding: 10px;
+  padding: 0 5px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
+  justify-content: center;
+  gap: 0;
+  width: 150px;
+  flex: 0 0 150px;
+  margin-left: auto;
 }
 
 .chart-toolbar > span {
+  display: none;
   color: #60727c;
   font-size: 0.72rem;
   font-weight: 900;
@@ -1343,14 +1511,15 @@
 .chart-toolbar > div {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  width: 100%;
 }
 
 .chart-toolbar button {
-  width: 32px;
-  min-width: 32px;
-  min-height: 32px;
-  height: 32px;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  height: 34px;
   padding: 0;
   border: 1px solid #dbe5e8;
   background: #ffffff;
@@ -1359,8 +1528,9 @@
 
 .chart-toolbar button:nth-child(2) {
   width: auto;
-  min-width: 78px;
-  padding: 0 10px;
+  min-width: 64px;
+  flex: 1 1 auto;
+  padding: 0 6px;
   background: #e5f5f3;
   border-color: #b4e5de;
   color: #142536;
@@ -1733,5 +1903,223 @@ th {
 
 .danger-action:hover {
   background: #991b1b;
+}
+
+/* Dashboard visual refresh */
+.topbar {
+  min-height: 78px;
+  border: 1px solid rgba(207, 224, 229, 0.86);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 16px 40px rgba(24, 33, 45, 0.08);
+  padding: 16px 18px;
+  backdrop-filter: blur(18px);
+}
+
+.topbar h2 {
+  color: #111c27;
+  font-size: 1.72rem;
+}
+
+.eyebrow {
+  font-weight: 900;
+}
+
+.status-pill,
+.freshness-pill {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.status-pill.connected {
+  background: linear-gradient(180deg, #f7fffb, #eaf8f2);
+}
+
+.status-pill.warning {
+  background: linear-gradient(180deg, #fffaf0, #fff2d3);
+}
+
+.refresh-button {
+  border: 1px solid #0f8f9f;
+  background: linear-gradient(135deg, #0f7c87, #1398aa);
+  box-shadow: 0 12px 26px rgba(19, 152, 170, 0.18);
+}
+
+.stat-card,
+.panel,
+.metric-card,
+.operation-alerts-panel,
+.live-summary-panel,
+.analytics-panel,
+.recent-readings-panel,
+.operator-list-panel {
+  border-color: #d7e6ea;
+  background: linear-gradient(180deg, #ffffff, #f8fbfc);
+  box-shadow: 0 18px 42px rgba(24, 33, 45, 0.09);
+}
+
+.metric-card,
+.live-summary-card,
+.summary-pill,
+.recent-reading-card,
+.operator-card,
+.checkpoint-stat-grid > div,
+.checkpoint-site-card,
+.operation-alert-card {
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.metric-card:hover,
+.live-summary-card:hover,
+.recent-reading-card:hover,
+.operator-card:hover,
+.checkpoint-site-card:hover,
+.operation-alert-card:hover {
+  border-color: #b8dfe5;
+  box-shadow: 0 16px 34px rgba(24, 33, 45, 0.1);
+  transform: translateY(-1px);
+}
+
+.metric-icon,
+.section-icon,
+.live-summary-icon,
+.summary-pill .summary-icon,
+.checkpoint-marker {
+  background: linear-gradient(135deg, #e1fbfb, #eaf8f2);
+  border-color: #bfe1e5;
+  color: #0b6d76;
+}
+
+.live-summary-card {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+  border-color: #d5e5e9;
+}
+
+.live-summary-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #1398aa, #20bfa3);
+}
+
+.operation-alerts-panel.has-alerts {
+  box-shadow: 0 18px 42px rgba(212, 148, 39, 0.12);
+}
+
+.operation-alert-card {
+  background: #ffffff;
+}
+
+.operation-alert-card.critical {
+  background: linear-gradient(90deg, #fff1f1, #ffffff);
+}
+
+.operation-alert-card.warning {
+  background: linear-gradient(90deg, #fff6df, #ffffff);
+}
+
+.operation-alert-card.info {
+  background: linear-gradient(90deg, #e9fbfd, #ffffff);
+}
+
+.chart-title-dropdown {
+  border-color: #afd9df;
+  background: linear-gradient(180deg, #ffffff, #eaf7f9);
+  box-shadow: 0 14px 30px rgba(19, 152, 170, 0.09);
+}
+
+.production-month-menu,
+.chart-tooltip,
+.brand-dropdown,
+.export-format-list {
+  backdrop-filter: blur(16px);
+}
+
+.chart-toolbar {
+  border-color: #d6e6ea;
+  background: linear-gradient(180deg, #ffffff, #f3fafb);
+}
+
+.chart-toolbar button {
+  border-color: #d4e6eb;
+}
+
+.summary-pill {
+  border-color: #b5e0e3;
+  background: linear-gradient(135deg, #f5ffff, #f0faf7);
+  box-shadow: 0 14px 26px rgba(17, 106, 117, 0.1);
+}
+
+.summary-pill::before {
+  background: linear-gradient(180deg, #1398aa, #20bfa3);
+}
+
+.chart-frame {
+  border-color: #d6e6ea;
+  background: linear-gradient(180deg, #ffffff, #f8fbfc);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.chart-scroll {
+  scrollbar-color: #1398aa #e6f2f5;
+  scrollbar-width: thin;
+}
+
+.chart-scroll::-webkit-scrollbar,
+.recent-reading-scroll::-webkit-scrollbar,
+.operator-card-scroll::-webkit-scrollbar,
+.checkpoint-scroll::-webkit-scrollbar,
+.operation-alert-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.chart-scroll::-webkit-scrollbar-track,
+.recent-reading-scroll::-webkit-scrollbar-track,
+.operator-card-scroll::-webkit-scrollbar-track,
+.checkpoint-scroll::-webkit-scrollbar-track,
+.operation-alert-scroll::-webkit-scrollbar-track {
+  background: #e6f2f5;
+  border-radius: 999px;
+}
+
+.chart-scroll::-webkit-scrollbar-thumb,
+.recent-reading-scroll::-webkit-scrollbar-thumb,
+.operator-card-scroll::-webkit-scrollbar-thumb,
+.checkpoint-scroll::-webkit-scrollbar-thumb,
+.operation-alert-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #79dbe6, #1296a7);
+  border: 2px solid #e6f2f5;
+  border-radius: 999px;
+}
+
+.recent-reading-card,
+.operator-card {
+  background: linear-gradient(180deg, #f7ffff, #effcfd);
+}
+
+.recent-reading-card.deepwell {
+  background: linear-gradient(180deg, #fffaf0, #fff3d8);
+}
+
+.checkpoint-stat-grid > div,
+.checkpoint-site-card,
+.recent-reading-meta > div {
+  background: #ffffff;
+  border-color: #d5e5e9;
+}
+
+.panel-heading {
+  background: linear-gradient(180deg, #ffffff, #f8fbfc);
+}
+
+th {
+  background: #f4fafb;
+}
+
+tbody tr:hover td {
+  background: #f7fcfd;
 }
 

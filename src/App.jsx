@@ -19,6 +19,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingDashboard, setRefreshingDashboard] = useState(false);
   const [message, setMessage] = useState('');
   const [activeView, setActiveView] = useState('dashboard');
   const [workingId, setWorkingId] = useState('');
@@ -37,6 +38,8 @@ export default function App() {
   async function loadDashboard({ silent = false } = {}) {
     if (!silent) {
       setLoading(true);
+    } else {
+      setRefreshingDashboard(true);
     }
 
     try {
@@ -48,6 +51,7 @@ export default function App() {
       setMessage(error.message || 'Failed to load dashboard.');
     } finally {
       setLoading(false);
+      setRefreshingDashboard(false);
     }
   }
 
@@ -233,6 +237,7 @@ export default function App() {
       dashboard={dashboard}
       isAdmin={isAdmin}
       loading={loading}
+      refreshing={refreshingDashboard}
       message={message}
       profile={profile}
       lastUpdatedAt={lastUpdatedAt}
