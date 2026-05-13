@@ -146,12 +146,12 @@ function getShiftMatchLabel(row) {
     return row?.is_daily_summary ? 'Daily summary' : '-';
   }
 
-  const operator = match.assignment?.profile?.full_name || match.assignment?.profile?.email || 'Unassigned';
+  const operator = match.operator?.name || 'Waiting for first reading';
   const status = {
-    assigned: 'Assigned',
-    matched: 'Matched',
-    mismatch: 'Mismatch',
-    unassigned: 'Unassigned',
+    covered: 'Covered by',
+    detected: 'Detected',
+    owner: 'Started by',
+    pending_first_reading: 'Pending',
     outside_shift: 'Outside shift',
   }[match.status] || match.status;
 

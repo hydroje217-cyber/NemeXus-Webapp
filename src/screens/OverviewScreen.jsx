@@ -821,11 +821,58 @@ function OverviewTopPanels({ activeSection, dashboard, isAdmin, onOpenApprovals,
   );
 }
 
-function OperatorsPanel({ operators, panelRef }) {
+function getReadingTimestamp(reading) {
+  return reading?.slot_datetime || reading?.reading_datetime || reading?.created_at || '';
+}
+
+function getReadingOperatorName(reading) {
+  return (
+    reading?.submitted_profile?.full_name ||
+    reading?.submitted_profile?.email ||
+    reading?.shift_match?.operator?.name ||
+    ''
+  );
+}
+
+function getCurrentShiftOperator(readings, now = new Date()) {
+  const { shift, start, end } = getShiftWindow('current', now);
+  const firstReading = (readings ?? [])
+    .filter((reading) => {
+      const operatorName = getReadingOperatorName(reading);
+      const timestamp = new Date(getReadingTimestamp(reading));
+
+      return operatorName && !Number.isNaN(timestamp.getTime()) && timestamp >= start && timestamp < end;
+    })
+    .sort((first, second) => new Date(getReadingTimestamp(first)).getTime() - new Date(getReadingTimestamp(second)).getTime())[0];
+
+  return {
+    shift,
+    operatorName: getReadingOperatorName(firstReading),
+  };
+}
+
+function isCurrentShiftOperator(operator, currentShiftOperator) {
+  if (!currentShiftOperator.operatorName) {
+    return false;
+  }
+
+  const operatorName = operator.full_name || operator.email || '';
+  return operatorName.toLowerCase() === currentShiftOperator.operatorName.toLowerCase();
+}
+
+function OperatorsPanel({ operators, readings, panelRef }) {
   const [currentShift, setCurrentShift] = useState(() => getCurrentShift());
+  const currentShiftOperator = getCurrentShiftOperator(readings);
   const operatorRows = (operators ?? [])
     .filter((operator) => operator.role === 'operator')
     .sort((first, second) => {
+      const firstIsCurrentShift = isCurrentShiftOperator(first, currentShiftOperator);
+      const secondIsCurrentShift = isCurrentShiftOperator(second, currentShiftOperator);
+
+      if (firstIsCurrentShift !== secondIsCurrentShift) {
+        return firstIsCurrentShift ? -1 : 1;
+      }
+
       const firstName = first.full_name || first.email || '';
       const secondName = second.full_name || second.email || '';
       return firstName.localeCompare(secondName);
@@ -851,7 +898,12 @@ function OperatorsPanel({ operators, panelRef }) {
             <p>{operatorRows.length} operator account(s)</p>
           </div>
         </div>
-        <strong className="operator-shift-badge">{currentShift}</strong>
+        <div className="operator-shift-summary">
+          <strong className="operator-current-shift">
+            {currentShiftOperator.operatorName ? `${currentShiftOperator.operatorName}'s shift` : 'Waiting for first reading'}
+          </strong>
+          <strong className="operator-shift-badge">{currentShift}</strong>
+        </div>
       </header>
 
       {!operatorRows.length ? (
@@ -861,12 +913,13 @@ function OperatorsPanel({ operators, panelRef }) {
           <div className="operator-card-grid">
             {operatorRows.map((operator) => {
               const status = getOperatorStatus(operator);
+              const isShiftOperator = isCurrentShiftOperator(operator, currentShiftOperator);
               return (
-                <article className="operator-card" key={operator.id}>
+                <article className={isShiftOperator ? 'operator-card current-shift-operator' : 'operator-card'} key={operator.id}>
                   <div className="recent-reading-topline">
                     <div>
                       <h4>{operator.full_name || operator.email || 'Operator'}</h4>
-                      <span>Operator</span>
+                      <span>{isShiftOperator ? 'Current shift operator' : 'Operator'}</span>
                     </div>
                   </div>
 
@@ -1049,12 +1102,7 @@ function buildCheckpointData(readings, { now, siteType, shift }) {
 
     const items = sites.map((site) => {
       const reading = readingsBySlot.get(`${time}:${site.siteType}:${site.name}`);
-      const operator =
-        reading?.submitted_profile?.full_name ||
-        reading?.submitted_profile?.email ||
-        reading?.shift_match?.assignment?.profile?.full_name ||
-        reading?.shift_match?.assignment?.profile?.email ||
-        'Operator';
+      const operator = getReadingOperatorName(reading) || 'Operator';
 
       return {
         key: site.id,
@@ -1632,7 +1680,7 @@ export default function OverviewScreen({
             emptyMessage={`No chemical usage saved for ${selectedChemicalUsage.year || selectedChemicalUsageYear}.`}
           />
         </ChartPanel>
-        <OperatorsPanel operators={dashboard?.operators ?? []} panelRef={activityRef} />
+        <OperatorsPanel operators={dashboard?.operators ?? []} readings={dashboard?.recentReadings ?? []} panelRef={activityRef} />
         <RecentReadingsPanel readings={dashboard?.recentReadings ?? []} />
       </section>
     </>

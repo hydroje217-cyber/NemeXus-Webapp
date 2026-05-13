@@ -143,7 +143,6 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_site_summaries' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chlorination_readings' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deepwell_readings' }, scheduleRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'shift_assignments' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, scheduleRefresh)
       .subscribe();

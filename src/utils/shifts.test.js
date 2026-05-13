@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   detectShiftForTimestamp,
+  enrichReadingsWithInferredShiftOwnership,
   getShiftAssignmentDate,
-  matchReadingToShift,
+  inferShiftOwnership,
 } from './shifts.js';
 
 describe('shift detection', () => {
@@ -20,36 +21,36 @@ describe('shift detection', () => {
     assert.equal(getShiftAssignmentDate('2026-05-13T23:30:00', 'C'), '2026-05-13');
   });
 
-  it('marks submitted readings as matched or mismatched against assignments', () => {
-    const assignment = {
-      assignment_date: '2026-05-13',
-      shift_key: 'A',
-      site_id: 'site-1',
-      profile_id: 'john',
-    };
+  it('uses the first submitted reading as the inferred shift operator', () => {
+    const readings = [
+      {
+        site_id: 'site-1',
+        slot_datetime: '2026-05-13T07:30:00',
+        submitted_profile: { id: 'maria', full_name: 'Maria' },
+      },
+      {
+        site_id: 'site-1',
+        slot_datetime: '2026-05-13T07:00:00',
+        submitted_profile: { id: 'john', full_name: 'John' },
+      },
+    ];
+    const ownership = inferShiftOwnership(readings);
+    const owner = Array.from(ownership.values())[0];
 
-    assert.equal(
-      matchReadingToShift(
-        {
-          site_id: 'site-1',
-          slot_datetime: '2026-05-13T07:00:00',
-          submitted_profile: { id: 'john' },
-        },
-        [assignment]
-      ).status,
-      'matched'
-    );
+    assert.equal(owner.operator.name, 'John');
+  });
 
-    assert.equal(
-      matchReadingToShift(
-        {
-          site_id: 'site-1',
-          slot_datetime: '2026-05-13T07:00:00',
-          submitted_profile: { id: 'maria' },
-        },
-        [assignment]
-      ).status,
-      'mismatch'
-    );
+  it('adds inferred shift owner labels to readings', () => {
+    const [reading] = enrichReadingsWithInferredShiftOwnership([
+      {
+        site_id: 'site-1',
+        slot_datetime: '2026-05-13T07:00:00',
+        submitted_profile: { id: 'john', full_name: 'John' },
+      },
+    ]);
+
+    assert.equal(reading.shift_match.shift.key, 'A');
+    assert.equal(reading.shift_match.status, 'owner');
+    assert.equal(reading.shift_match.operator.name, 'John');
   });
 });

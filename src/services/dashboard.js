@@ -12,27 +12,24 @@ import {
   buildMonthlyProductionYears,
   startOfYearlyAnalyticsSourceIso,
 } from '../utils/production';
-import { enrichReadingsWithShiftMatches } from '../utils/shifts';
-import { listShiftAssignments } from './shifts';
+import { enrichReadingsWithInferredShiftOwnership } from '../utils/shifts';
 
 const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin']);
 
 const DAILY_SUMMARY_SELECT =
   'id, site_id, summary_date, source, source_file, production_m3, power_kwh, chlorine_kg, avg_flowrate_m3hr, avg_pressure_psi, avg_rc_ppm, avg_turbidity_ntu, avg_ph, avg_tds_ppm, peroxide_liters, operating_hours, scheduled_downtime_hours, unscheduled_downtime_hours, avg_upstream_pressure_psi, avg_downstream_pressure_psi, avg_vfd_frequency_hz, avg_voltage_l1_v, avg_voltage_l2_v, avg_voltage_l3_v, avg_amperage_a, created_at, updated_at, site:sites!inner(id, name, type)';
+const CHLORINATION_READING_SELECT =
+  'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, pressure_psi, rc_ppm, turbidity_ntu, ph, tds_ppm, tank_level_liters, flowrate_m3hr, totalizer, chlorination_power_kwh, chlorine_consumed, peroxide_consumption, site:sites(id, name, type), submitted_profile:profiles(id, email, full_name)';
+const DEEPWELL_READING_SELECT =
+  'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, upstream_pressure_psi, downstream_pressure_psi, flowrate_m3hr, vfd_frequency_hz, voltage_l1_v, voltage_l2_v, voltage_l3_v, amperage_a, tds_ppm, power_kwh_shift, site:sites(id, name, type), submitted_profile:profiles(id, email, full_name)';
+const CHLORINATION_READING_FALLBACK_SELECT =
+  'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, pressure_psi, rc_ppm, turbidity_ntu, ph, tds_ppm, tank_level_liters, flowrate_m3hr, totalizer, chlorination_power_kwh, chlorine_consumed, peroxide_consumption, site:sites(id, name, type)';
+const DEEPWELL_READING_FALLBACK_SELECT =
+  'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, upstream_pressure_psi, downstream_pressure_psi, flowrate_m3hr, vfd_frequency_hz, voltage_l1_v, voltage_l2_v, voltage_l3_v, amperage_a, tds_ppm, power_kwh_shift, site:sites(id, name, type)';
 
 function startOfTodayIso() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-}
-
-function dateInputValue(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function addDays(date, amount) {
-  const nextDate = new Date(date);
-  nextDate.setDate(nextDate.getDate() + amount);
-  return nextDate;
 }
 
 function normalizeReading(row, siteType) {
@@ -81,6 +78,65 @@ function normalizeDailySummary(row) {
   );
 }
 
+function normalizeRawReading(row, siteType) {
+  const site = row.site || row.sites || null;
+
+  return normalizeReading(
+    {
+      ...row,
+      site,
+      sites: site,
+      status: row.status || 'submitted',
+      submitted_profile: row.submitted_profile || null,
+    },
+    siteType
+  );
+}
+
+async function queryRawReadings({ table, select, fallbackSelect, siteType, fromIso, limit }) {
+  const query = (selectClause) =>
+    supabase
+      .from(table)
+      .select(selectClause)
+      .gte('slot_datetime', fromIso)
+      .order('slot_datetime', { ascending: false })
+      .limit(limit);
+  let result = await query(select);
+
+  if (result.error && fallbackSelect) {
+    result = await query(fallbackSelect);
+  }
+
+  if (result.error) {
+    return [];
+  }
+
+  return (result.data ?? []).map((row) => normalizeRawReading(row, siteType));
+}
+
+async function loadRecentRawReadings({ fromIso, limit }) {
+  const [chlorinationReadings, deepwellReadings] = await Promise.all([
+    queryRawReadings({
+      table: 'chlorination_readings',
+      select: CHLORINATION_READING_SELECT,
+      fallbackSelect: CHLORINATION_READING_FALLBACK_SELECT,
+      siteType: 'CHLORINATION',
+      fromIso,
+      limit,
+    }),
+    queryRawReadings({
+      table: 'deepwell_readings',
+      select: DEEPWELL_READING_SELECT,
+      fallbackSelect: DEEPWELL_READING_FALLBACK_SELECT,
+      siteType: 'DEEPWELL',
+      fromIso,
+      limit,
+    }),
+  ]);
+
+  return [...chlorinationReadings, ...deepwellReadings].sort(sortByCreatedAtDesc).slice(0, limit * 2);
+}
+
 function sortByCreatedAtDesc(a, b) {
   return (
     new Date(b.slot_datetime || b.reading_datetime || b.created_at || 0).getTime() -
@@ -114,23 +170,18 @@ export async function getProfile(userId) {
 
 export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const todayIso = startOfTodayIso();
-  const today = new Date(todayIso);
-  const shiftAssignmentRange = {
-    fromDate: dateInputValue(addDays(today, -1)),
-    toDate: dateInputValue(addDays(today, 7)),
-  };
+  const checkpointFromIso = new Date(new Date(todayIso).getTime() - 24 * 60 * 60 * 1000).toISOString();
 
   const [
     pendingApprovals,
     totalOperators,
     approvedOperators,
     sitesCount,
-    sites,
     todaySummaries,
     recentSummaries,
+    recentRawReadings,
     profiles,
     operators,
-    shiftAssignmentsResult,
     monthlySummaries,
   ] = await Promise.all([
     supabase
@@ -148,7 +199,6 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .eq('is_active', true)
       .eq('is_approved', true),
     supabase.from('sites').select('id', { count: 'exact', head: true }),
-    supabase.from('sites').select('id, name, type').order('type', { ascending: true }).order('name', { ascending: true }),
     supabase
       .from('daily_site_summaries')
       .select('id', { count: 'exact', head: true })
@@ -158,6 +208,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .select(DAILY_SUMMARY_SELECT)
       .order('summary_date', { ascending: false })
       .limit(limit),
+    loadRecentRawReadings({ fromIso: checkpointFromIso, limit: 250 }),
     supabase
       .from('profiles')
       .select('id, email, full_name, role, is_active, is_approved, approved_at, created_at')
@@ -169,7 +220,6 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .eq('role', 'operator')
       .order('full_name', { ascending: true, nullsFirst: false })
       .order('email', { ascending: true, nullsFirst: false }),
-    listShiftAssignments(shiftAssignmentRange),
     supabase
       .from('daily_site_summaries')
       .select(DAILY_SUMMARY_SELECT)
@@ -181,20 +231,18 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
   throwIfError(totalOperators, 'Failed to count operators.');
   throwIfError(approvedOperators, 'Failed to count approved operators.');
   throwIfError(sitesCount, 'Failed to count sites.');
-  throwIfError(sites, 'Failed to load sites.');
   throwIfError(todaySummaries, 'Failed to count daily site summaries.');
   throwIfError(recentSummaries, 'Failed to load recent daily site summaries.');
   throwIfError(profiles, 'Failed to load accounts.');
   throwIfError(operators, 'Failed to load operators.');
   throwIfError(monthlySummaries, 'Failed to load monthly daily site summaries.');
 
-  const shiftAssignments = shiftAssignmentsResult.assignments ?? [];
-  const recentReadings = enrichReadingsWithShiftMatches(
-    (recentSummaries.data ?? [])
+  const recentSummaryRows = (recentSummaries.data ?? [])
     .map(normalizeDailySummary)
     .sort(sortByCreatedAtDesc)
-      .slice(0, limit),
-    shiftAssignments
+    .slice(0, limit);
+  const recentReadings = enrichReadingsWithInferredShiftOwnership(
+    recentRawReadings.length ? recentRawReadings : recentSummaryRows
   );
   const monthlyRows = (monthlySummaries.data ?? []).map(normalizeDailySummary);
   const monthlyChlorination = monthlyRows.filter((row) => row.site_type === 'CHLORINATION');
@@ -212,9 +260,6 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     recentReadings,
     profiles: profiles.data ?? [],
     operators: operators.data ?? [],
-    sites: sites.data ?? [],
-    shiftAssignments,
-    shiftAssignmentsSetupRequired: shiftAssignmentsResult.setupRequired,
     monthlyProduction: buildMonthlyProduction(monthlyChlorination),
     monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination),
     dailyProduction: buildDailyProduction(monthlyChlorination),

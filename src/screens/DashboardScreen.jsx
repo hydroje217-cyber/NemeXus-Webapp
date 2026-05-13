@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowUp,
   BarChart3,
-  CalendarDays,
   CheckCircle2,
   ChevronDown,
   Droplets,
@@ -23,7 +22,6 @@ import AccountsScreen from './AccountsScreen';
 import ApprovalsScreen from './ApprovalsScreen';
 import OverviewScreen, { buildOperationAlerts } from './OverviewScreen';
 import ReadingsScreen from './ReadingsScreen';
-import ShiftsScreen from './ShiftsScreen';
 
 function titleize(value) {
   return value ? value[0].toUpperCase() + value.slice(1) : 'Dashboard';
@@ -49,7 +47,6 @@ function getTabs(isAdmin) {
   const tabs = [
     { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { key: 'readings', label: 'Readings', icon: Droplets },
-    { key: 'shifts', label: 'Shifts', icon: CalendarDays },
   ];
 
   if (isAdmin) {
@@ -167,17 +164,6 @@ export default function DashboardScreen({
           workingId={workingId}
           onRoleChange={onRoleChange}
           onDeleteAccount={onDeleteAccount}
-        />
-      );
-    }
-
-    if (activeView === 'shifts') {
-      return (
-        <ShiftsScreen
-          operators={dashboard?.operators ?? []}
-          sites={dashboard?.sites ?? []}
-          profile={profile}
-          onRefreshDashboard={onRefresh}
         />
       );
     }

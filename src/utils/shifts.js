@@ -76,21 +76,43 @@ function readingTimestamp(reading) {
   return reading?.slot_datetime || reading?.reading_datetime || reading?.created_at || '';
 }
 
-function readingSubmitterId(reading) {
-  return (
-    reading?.submitted_profile?.id ||
-    reading?.submitted_profile_id ||
-    reading?.profile_id ||
-    reading?.user_id ||
-    ''
-  );
-}
-
 function normalizeId(value) {
   return value === null || value === undefined ? '' : String(value);
 }
 
-export function matchReadingToShift(reading, assignments = []) {
+function readingSiteKey(reading) {
+  return normalizeId(
+    reading?.site_id ||
+      reading?.sites?.id ||
+      reading?.site?.id ||
+      `${reading?.site_type || ''}:${reading?.site?.name || reading?.sites?.name || 'main'}`
+  );
+}
+
+function readingOperator(reading) {
+  const profile = reading?.submitted_profile;
+
+  if (!profile?.id && !profile?.full_name && !profile?.email) {
+    return null;
+  }
+
+  return {
+    id: profile.id || '',
+    name: profile.full_name || profile.email || 'Operator',
+    email: profile.email || '',
+  };
+}
+
+function readingTimeMs(reading) {
+  const parsed = new Date(readingTimestamp(reading));
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function shiftOwnershipKey({ assignmentDate, shiftKey, siteKey }) {
+  return `${assignmentDate}:${shiftKey}:${siteKey || 'site'}`;
+}
+
+export function getReadingShiftInfo(reading) {
   const timestamp = readingTimestamp(reading);
   const shift = detectShiftForTimestamp(timestamp);
 
@@ -98,58 +120,86 @@ export function matchReadingToShift(reading, assignments = []) {
     return {
       status: 'outside_shift',
       shift: null,
-      assignment: null,
+      operator: null,
     };
   }
 
   const assignmentDate = getShiftAssignmentDate(timestamp, shift.key);
-  const readingSiteId = normalizeId(reading?.site_id || reading?.sites?.id || reading?.site?.id);
-  const submitterId = normalizeId(readingSubmitterId(reading));
-  const assignment =
-    assignments.find(
-      (item) =>
-        item.assignment_date === assignmentDate &&
-        item.shift_key === shift.key &&
-        (!readingSiteId || !item.site_id || normalizeId(item.site_id) === readingSiteId)
-    ) || null;
-
-  if (!assignment) {
-    return {
-      status: 'unassigned',
-      shift,
-      assignmentDate,
-      assignment: null,
-    };
-  }
-
-  if (!submitterId) {
-    return {
-      status: 'assigned',
-      shift,
-      assignmentDate,
-      assignment,
-    };
-  }
 
   return {
-    status: normalizeId(assignment.profile_id) === submitterId ? 'matched' : 'mismatch',
+    status: 'detected',
     shift,
     assignmentDate,
-    assignment,
+    siteKey: readingSiteKey(reading),
+    operator: null,
   };
 }
 
-export function enrichReadingsWithShiftMatches(readings = [], assignments = []) {
-  return readings.map((reading) => {
-    if (reading?.is_daily_summary) {
-      return reading;
+export function inferShiftOwnership(readings = []) {
+  const ownersByShift = new Map();
+
+  readings.forEach((reading) => {
+    const operator = readingOperator(reading);
+
+    if (!operator) {
+      return;
     }
 
-    const match = matchReadingToShift(reading, assignments);
+    const shiftInfo = getReadingShiftInfo(reading);
 
+    if (!shiftInfo.shift) {
+      return;
+    }
+
+    const key = shiftOwnershipKey({
+      assignmentDate: shiftInfo.assignmentDate,
+      shiftKey: shiftInfo.shift.key,
+      siteKey: shiftInfo.siteKey,
+    });
+    const currentOwner = ownersByShift.get(key);
+
+    if (!currentOwner || readingTimeMs(reading) < currentOwner.firstReadingAt) {
+      ownersByShift.set(key, {
+        ...shiftInfo,
+        operator,
+        firstReadingAt: readingTimeMs(reading),
+      });
+    }
+  });
+
+  return ownersByShift;
+}
+
+export function enrichReadingsWithInferredShiftOwnership(readings = []) {
+  const ownersByShift = inferShiftOwnership(readings);
+
+  return readings.map((reading) => {
+    const shiftInfo = getReadingShiftInfo(reading);
+
+    if (!shiftInfo.shift) {
+      return {
+        ...reading,
+        shift_match: shiftInfo,
+      };
+    }
+
+    const owner = ownersByShift.get(
+      shiftOwnershipKey({
+        assignmentDate: shiftInfo.assignmentDate,
+        shiftKey: shiftInfo.shift.key,
+        siteKey: shiftInfo.siteKey,
+      })
+    );
+
+    const submitter = readingOperator(reading);
     return {
       ...reading,
-      shift_match: match,
+      shift_match: {
+        ...shiftInfo,
+        status: owner ? (submitter?.id && owner.operator.id === submitter.id ? 'owner' : 'covered') : 'pending_first_reading',
+        operator: owner?.operator || null,
+        firstReadingAt: owner?.firstReadingAt || null,
+      },
     };
   });
 }

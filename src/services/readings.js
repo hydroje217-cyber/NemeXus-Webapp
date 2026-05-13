@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { enrichReadingsWithShiftAssignments } from './shifts';
+import { enrichReadingsWithInferredShiftOwnership } from '../utils/shifts';
 
 const DAILY_SUMMARY_SELECT =
   'id, site_id, summary_date, source, source_file, production_m3, power_kwh, chlorine_kg, avg_flowrate_m3hr, avg_pressure_psi, avg_rc_ppm, avg_turbidity_ntu, avg_ph, avg_tds_ppm, peroxide_liters, operating_hours, scheduled_downtime_hours, unscheduled_downtime_hours, avg_upstream_pressure_psi, avg_downstream_pressure_psi, avg_vfd_frequency_hz, avg_voltage_l1_v, avg_voltage_l2_v, avg_voltage_l3_v, avg_amperage_a, created_at, updated_at, sites!inner(id, name, type)';
@@ -79,7 +79,7 @@ export async function listReadings({ siteType, fromDate, toDate, limit }) {
       throw error;
     }
 
-    return enrichReadingsWithShiftAssignments((data ?? []).map((row) => normalizeDailySummary(row, siteType)));
+    return enrichReadingsWithInferredShiftOwnership((data ?? []).map((row) => normalizeDailySummary(row, siteType)));
   }
 
   return [];
