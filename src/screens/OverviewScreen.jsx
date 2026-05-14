@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronDown, Clock, Droplets, FlaskConical, Grid3X3, History, Hourglass, Minus, Plus, RotateCcw, ShieldCheck, Users, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronDown, Clock, Droplets, FlaskConical, Grid3X3, History, Hourglass, Users, X, Zap } from 'lucide-react';
 import {
   Bar,
   BarChart as RechartsBarChart,
@@ -13,9 +13,6 @@ import {
   YAxis,
 } from 'recharts';
 
-const MIN_CHART_ZOOM = 0.75;
-const MAX_CHART_ZOOM = 2;
-const CHART_ZOOM_STEP = 0.25;
 const DAILY_PRODUCTION_DEFAULT_DAYS = 7;
 
 function formatNumber(value, decimals = 2) {
@@ -30,34 +27,6 @@ function formatNumber(value, decimals = 2) {
   });
 }
 
-function clampZoom(value) {
-  return Math.min(MAX_CHART_ZOOM, Math.max(MIN_CHART_ZOOM, Number(value.toFixed(2))));
-}
-
-function ZoomControls({ zoomLevel, onZoomIn, onZoomOut, onReset }) {
-  const zoomPercent = Math.round(zoomLevel * 100);
-  const canZoomOut = zoomLevel > MIN_CHART_ZOOM;
-  const canZoomIn = zoomLevel < MAX_CHART_ZOOM;
-
-  return (
-    <div className="chart-toolbar" aria-label="Chart zoom controls">
-      <span>Zoom</span>
-      <div>
-        <button type="button" aria-label="Zoom out" disabled={!canZoomOut} onClick={onZoomOut}>
-          <Minus size={15} />
-        </button>
-        <button type="button" aria-label="Reset zoom" disabled={zoomLevel === 1} onClick={onReset}>
-          <RotateCcw size={14} />
-          {zoomPercent}%
-        </button>
-        <button type="button" aria-label="Zoom in" disabled={!canZoomIn} onClick={onZoomIn}>
-          <Plus size={15} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function ChartPanel({
   busy = false,
   title,
@@ -67,10 +36,6 @@ function ChartPanel({
   summaryValue,
   summaryHint,
   summaryItems,
-  zoomLevel,
-  onZoomIn,
-  onZoomOut,
-  onReset,
   panelRef,
   children,
 }) {
@@ -88,7 +53,6 @@ function ChartPanel({
             </>
           )}
         </div>
-        <ZoomControls zoomLevel={zoomLevel} onZoomIn={onZoomIn} onZoomOut={onZoomOut} onReset={onReset} />
       </header>
       <div className={summaryItems?.length ? 'summary-pill-grid' : undefined}>
         {(summaryItems?.length ? summaryItems : [{ label: summaryLabel, value: summaryValue, hint: summaryHint, icon: Icon }]).map((item) => {
@@ -112,11 +76,11 @@ function ChartPanel({
   );
 }
 
-function getChartWidth(rowCount, zoomLevel, daily = false) {
+function getChartWidth(rowCount, daily = false) {
   const effectiveRowCount = daily ? Math.max(rowCount, DAILY_PRODUCTION_DEFAULT_DAYS) : rowCount;
   const baseColumnWidth = daily ? 86 : 78;
   const baseMinimumWidth = 600;
-  const scaledWidth = Math.round(effectiveRowCount * baseColumnWidth * zoomLevel);
+  const scaledWidth = Math.round(effectiveRowCount * baseColumnWidth);
 
   if (daily) {
     return Math.max(360, scaledWidth);
@@ -325,14 +289,14 @@ function stackSegmentRadius(row, segment) {
   return segment === 'bottom' ? [0, 0, 7, 7] : [7, 7, 0, 0];
 }
 
-function SimpleBarChart({ rows, valueKey, emptyMessage, zoomLevel, daily = false }) {
+function SimpleBarChart({ rows, valueKey, emptyMessage, daily = false }) {
   const visibleRows = daily ? padDailyRows(rows, valueKey) : (rows ?? []);
   const chartRows = visibleRows.map((row) => ({
     label: row.label,
     value: Number(row[valueKey]) || 0,
   }));
   const hasData = visibleRows.some((row) => Number(row[valueKey]) > 0);
-  const chartWidth = getChartWidth(chartRows.length, zoomLevel, daily);
+  const chartWidth = getChartWidth(chartRows.length, daily);
   const chartHeight = daily ? 330 : 290;
 
   return (
@@ -368,7 +332,7 @@ function SimpleBarChart({ rows, valueKey, emptyMessage, zoomLevel, daily = false
   );
 }
 
-function StackedPowerChart({ rows, zoomLevel, daily = false, emptyMessage = 'Monthly power consumption will appear after power values are saved.' }) {
+function StackedPowerChart({ rows, daily = false, emptyMessage = 'Monthly power consumption will appear after power values are saved.' }) {
   const visibleRows = rows ?? [];
   const chartRows = visibleRows.map((row) =>
     createOrderedStackRow(
@@ -386,7 +350,7 @@ function StackedPowerChart({ rows, zoomLevel, daily = false, emptyMessage = 'Mon
     )
   );
   const hasData = visibleRows.some((row) => Number(row.totalPower) > 0);
-  const chartWidth = getChartWidth(chartRows.length, zoomLevel, daily);
+  const chartWidth = getChartWidth(chartRows.length, daily);
   const chartHeight = daily ? 330 : 290;
 
   return (
@@ -486,7 +450,7 @@ function isReadingInDateRange(reading, range) {
   return true;
 }
 
-function StackedChemicalChart({ rows, zoomLevel, emptyMessage = 'Monthly chemical usage will appear after chlorine and peroxide values are saved.' }) {
+function StackedChemicalChart({ rows, emptyMessage = 'Monthly chemical usage will appear after chlorine and peroxide values are saved.' }) {
   const visibleRows = rows ?? [];
   const chartRows = visibleRows.map((row) =>
     createOrderedStackRow(
@@ -504,7 +468,7 @@ function StackedChemicalChart({ rows, zoomLevel, emptyMessage = 'Monthly chemica
     )
   );
   const hasData = visibleRows.some((row) => Number(row.totalUsage) > 0);
-  const chartWidth = getChartWidth(chartRows.length, zoomLevel);
+  const chartWidth = getChartWidth(chartRows.length);
   const chartHeight = 290;
 
   return (
@@ -769,53 +733,12 @@ function LiveSummaryPanel({ dashboard, panelRef }) {
   );
 }
 
-function OperationAlertsPanel({ dashboard, panelRef }) {
-  const alerts = buildOperationAlerts(dashboard);
-  const hasAlerts = alerts.length > 0;
-
-  return (
-    <section
-      className={hasAlerts ? 'operation-alerts-panel has-alerts' : 'operation-alerts-panel'}
-      ref={panelRef}
-    >
-      <header className="operation-alerts-heading">
-        <span className="section-icon">
-          {hasAlerts ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}
-        </span>
-        <div>
-          <h3>Operations alerts</h3>
-          <p>{hasAlerts ? `${alerts.length} item(s) need attention` : 'No active operating alerts from recent readings.'}</p>
-        </div>
-      </header>
-
-      <div className={alerts.length >= 3 ? 'operation-alert-scroll has-peek' : 'operation-alert-scroll'}>
-        {hasAlerts ? (
-          <div className="operation-alert-grid">
-            {alerts.map((alert) => (
-              <article className={`operation-alert-card ${alert.severity}`} key={alert.key}>
-                <div className="operation-alert-card-head">
-                  <strong>{alert.title}</strong>
-                  <span className={`alert-severity-badge ${alert.severity}`}>{alert.severity}</span>
-                </div>
-                <p>{alert.detail}</p>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="chart-empty">No active operating alerts.</p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function OverviewTopPanels({ activeSection, dashboard, isAdmin, onOpenApprovals, operationsRef, summaryRef }) {
+function OverviewTopPanels({ dashboard, onOpenApprovals, summaryRef }) {
   return (
     <>
       <PendingApprovalNotice dashboard={dashboard} onOpenApprovals={onOpenApprovals} />
-      <div className={isAdmin ? `overview-top-grid active-${activeSection}` : `overview-top-grid summary-hidden active-${activeSection}`}>
-        {isAdmin ? <LiveSummaryPanel dashboard={dashboard} panelRef={summaryRef} /> : null}
-        <OperationAlertsPanel dashboard={dashboard} panelRef={operationsRef} />
+      <div className="overview-top-grid active-summary">
+        <LiveSummaryPanel dashboard={dashboard} panelRef={summaryRef} />
       </div>
     </>
   );
@@ -1260,16 +1183,12 @@ function RecentReadingsPanel({ readings }) {
 
 export default function OverviewScreen({
   dashboard,
-  isAdmin,
   refreshing = false,
   activeSection = 'production',
   scrollRequest = 0,
   onOpenApprovals,
   onVisibleSectionsChange,
 }) {
-  const [powerZoom, setPowerZoom] = useState(1);
-  const [chemicalZoom, setChemicalZoom] = useState(1);
-  const [monthlyProductionZoom, setMonthlyProductionZoom] = useState(1);
   const [selectedMonthlyProductionYear, setSelectedMonthlyProductionYear] = useState(() =>
     getStoredNumber('nemexus-monthly-production-year', getCurrentYear())
   );
@@ -1282,14 +1201,12 @@ export default function OverviewScreen({
     getStoredNumber('nemexus-chemical-usage-year', getCurrentYear())
   );
   const [chemicalYearMenuOpen, setChemicalYearMenuOpen] = useState(false);
-  const [dailyProductionZoom, setDailyProductionZoom] = useState(1);
   const [dailyProductionMonthMenuOpen, setDailyProductionMonthMenuOpen] = useState(false);
   const [selectedDailyProductionYear, setSelectedDailyProductionYear] = useState(() =>
     getStoredNumber('nemexus-daily-production-year', getCurrentYear())
   );
   const [selectedDailyProductionMonthKey, setSelectedDailyProductionMonthKey] = useState(getCurrentMonthKey);
   const summaryRef = useRef(null);
-  const operationsRef = useRef(null);
   const productionRef = useRef(null);
   const powerRef = useRef(null);
   const chemicalRef = useRef(null);
@@ -1327,18 +1244,11 @@ export default function OverviewScreen({
   const activeDailyRows = selectedDailyProduction.rows.filter((row) => Number(row.production) > 0);
   const sectionRefs = {
     summary: summaryRef,
-    operations: operationsRef,
     production: productionRef,
     power: powerRef,
     chemical: chemicalRef,
     activity: activityRef,
   };
-  const zoomProps = (zoomLevel, setZoomLevel) => ({
-    zoomLevel,
-    onZoomIn: () => setZoomLevel((current) => clampZoom(current + CHART_ZOOM_STEP)),
-    onZoomOut: () => setZoomLevel((current) => clampZoom(current - CHART_ZOOM_STEP)),
-    onReset: () => setZoomLevel(1),
-  });
 
   useEffect(() => {
     const target = sectionRefs[activeSection]?.current;
@@ -1472,11 +1382,8 @@ export default function OverviewScreen({
   return (
     <>
       <OverviewTopPanels
-        activeSection={activeSection}
         dashboard={dashboard}
-        isAdmin={isAdmin}
         onOpenApprovals={onOpenApprovals}
-        operationsRef={operationsRef}
         summaryRef={summaryRef}
       />
       <section className="chart-grid">
@@ -1508,13 +1415,11 @@ export default function OverviewScreen({
               />
             </div>
           }
-          {...zoomProps(monthlyProductionZoom, setMonthlyProductionZoom)}
         >
           <SimpleBarChart
             rows={selectedMonthlyProduction.rows}
             valueKey="production"
             emptyMessage={`No monthly production saved for ${selectedMonthlyProduction.year || selectedMonthlyProductionYear}.`}
-            zoomLevel={monthlyProductionZoom}
           />
         </ChartPanel>
 
@@ -1585,13 +1490,11 @@ export default function OverviewScreen({
           summaryValue={formatNumber(selectedDailyProduction.totalProduction)}
           summaryHint={`${activeDailyRows.length} active day(s)`}
           busy={refreshing}
-          {...zoomProps(dailyProductionZoom, setDailyProductionZoom)}
         >
           <SimpleBarChart
             rows={selectedDailyProduction.rows}
             valueKey="production"
             emptyMessage="Daily production will appear after totalizer values are saved for this month."
-            zoomLevel={dailyProductionZoom}
             daily
           />
         </ChartPanel>
@@ -1624,11 +1527,9 @@ export default function OverviewScreen({
               />
             </div>
           }
-          {...zoomProps(powerZoom, setPowerZoom)}
         >
           <StackedPowerChart
             rows={selectedPowerConsumption.rows}
-            zoomLevel={powerZoom}
             emptyMessage={`No power consumption saved for ${selectedPowerConsumption.year || selectedPowerConsumptionYear}.`}
           />
         </ChartPanel>
@@ -1672,11 +1573,9 @@ export default function OverviewScreen({
               icon: FlaskConical,
             },
           ]}
-          {...zoomProps(chemicalZoom, setChemicalZoom)}
         >
           <StackedChemicalChart
             rows={selectedChemicalUsage.rows}
-            zoomLevel={chemicalZoom}
             emptyMessage={`No chemical usage saved for ${selectedChemicalUsage.year || selectedChemicalUsageYear}.`}
           />
         </ChartPanel>

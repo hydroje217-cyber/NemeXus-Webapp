@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, Eye, FileText, Filter, Grid2X2, List, RefreshCw, Search, Table2, X } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronUp, Eye, FileText, Filter, Grid2X2, List, Search, X } from 'lucide-react';
 import { listReadings } from '../services/readings';
 import { aggregateDailyRows } from '../utils/production';
 
 const CHLORINATION = 'CHLORINATION';
 const DEEPWELL = 'DEEPWELL';
+const ALL_SITES = 'all';
 const DEFAULT_LIMIT = '50';
+const PAGE_SIZE = 25;
+const SITE_TYPE_OPTIONS = [
+  { value: ALL_SITES, label: 'All sites' },
+  { value: CHLORINATION, label: 'Chlorination' },
+  { value: DEEPWELL, label: 'Deepwell' },
+];
 
 function formatDateInputValue(date) {
   const year = date.getFullYear();
@@ -353,16 +360,14 @@ function ExportMenu({ exporting, open, onToggle, onSelect, onClose }) {
   );
 }
 
-export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
+export default function ReadingsScreen() {
   const initialDateRange = getCurrentMonthDateRange();
-  const [tableMode, setTableMode] = useState(selectedTableMode);
+  const [tableMode, setTableMode] = useState(ALL_SITES);
   const [fromDate, setFromDate] = useState(initialDateRange.fromDate);
   const [toDate, setToDate] = useState(initialDateRange.toDate);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
-  const [siteFilter, setSiteFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [pageSize, setPageSize] = useState('25');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedReading, setSelectedReading] = useState(null);
   const [items, setItems] = useState([]);
@@ -371,8 +376,8 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState('csv');
   const [exportOpen, setExportOpen] = useState(false);
-  const [visibleTable, setVisibleTable] = useState('records');
   const [message, setMessage] = useState('');
+  const loadRequestRef = useRef(0);
 
   const chlorinationColumns = useMemo(
     () => [
@@ -454,34 +459,36 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
     []
   );
 
-  const activeColumns = tableMode === CHLORINATION ? chlorinationColumns : deepwellColumns;
-  const averageFields = tableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
-  const siteOptions = useMemo(() => {
-    const siteMap = new Map();
-
-    items.forEach((item) => {
-      const siteId = item.site_id || item.sites?.id;
-      const siteName = item.sites?.name;
-
-      if (siteId && siteName) {
-        siteMap.set(siteId, siteName);
-      }
-    });
-
-    return Array.from(siteMap.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((first, second) => first.name.localeCompare(second.name));
-  }, [items]);
+  const allSiteColumns = useMemo(
+    () => [
+      { key: 'date', label: 'Date', render: (row) => formatShortDateTime(row.slot_datetime).slice(0, 10) },
+      { key: 'time', label: 'Time', render: (row) => formatTimeSlot(row.slot_datetime) },
+      { key: 'type', label: 'Type', render: (row) => (row.site_type === CHLORINATION ? 'Chlorination' : 'Deepwell') },
+      { key: 'site', label: 'Site', render: (row) => row.sites?.name || '-' },
+      { key: 'flowrate', label: 'Flowrate', render: (row) => row.flowrate_m3hr ?? '-' },
+      { key: 'tds', label: 'TDS', render: (row) => row.tds_ppm ?? '-' },
+      { key: 'totalizer', label: 'Totalizer', render: (row) => row.totalizer ?? '-' },
+      {
+        key: 'power',
+        label: 'Power kWh',
+        render: (row) => row.site_type === CHLORINATION ? row.chlorination_power_kwh ?? '-' : row.power_kwh_shift ?? '-',
+      },
+      { key: 'status', label: 'Status', render: (row) => row.status || '-' },
+      { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
+      { key: 'recordedBy', label: 'Recorded By', render: (row) => row.submitted_profile?.full_name || row.submitted_profile?.email || '-' },
+      { key: 'shift', label: 'Shift', render: getShiftMatchLabel },
+      { key: 'remarks', label: 'Remarks', render: (row) => row.remarks || row.status || '-' },
+    ],
+    []
+  );
+  const activeColumns =
+    tableMode === ALL_SITES ? allSiteColumns : tableMode === CHLORINATION ? chlorinationColumns : deepwellColumns;
+  const averageFields = tableMode === ALL_SITES ? [] : tableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
   const filteredItems = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
     return items.filter((item) => {
-      const siteId = item.site_id || item.sites?.id || '';
       const status = item.status || '';
-
-      if (siteFilter !== 'all' && siteId !== siteFilter) {
-        return false;
-      }
 
       if (statusFilter !== 'all' && status !== statusFilter) {
         return false;
@@ -493,11 +500,10 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
 
       return true;
     });
-  }, [items, searchTerm, siteFilter, statusFilter]);
-  const pageSizeNumber = Math.min(100, Math.max(5, Number(pageSize) || 25));
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSizeNumber));
+  }, [items, searchTerm, statusFilter]);
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const currentSafePage = Math.min(currentPage, totalPages);
-  const visibleItems = filteredItems.slice((currentSafePage - 1) * pageSizeNumber, currentSafePage * pageSizeNumber);
+  const visibleItems = filteredItems.slice((currentSafePage - 1) * PAGE_SIZE, currentSafePage * PAGE_SIZE);
   const statusOptions = useMemo(
     () => Array.from(new Set(items.map((item) => item.status).filter(Boolean))).sort(),
     [items]
@@ -516,6 +522,8 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
   );
 
   async function loadHistory(nextFilters = {}) {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
     setLoading(true);
     setMessage('');
 
@@ -526,10 +534,12 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
     const safeLimit = Math.min(200, Math.max(1, Number(effectiveLimit) || 8));
 
     if (effectiveFromDate && effectiveToDate && effectiveFromDate > effectiveToDate) {
-      setItems([]);
-      setDailyAverageRows([]);
-      setMessage('The from date must be on or before the to date.');
-      setLoading(false);
+      if (loadRequestRef.current === requestId) {
+        setItems([]);
+        setDailyAverageRows([]);
+        setMessage('The from date must be on or before the to date.');
+        setLoading(false);
+      }
       return;
     }
 
@@ -546,59 +556,56 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
             ? shiftDateValue(filters.fromDate, -1)
             : filters.fromDate,
       };
-      const fields = effectiveTableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
+      const fields =
+        effectiveTableMode === ALL_SITES ? [] : effectiveTableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
 
       const [nextItems, averagingItems] = await Promise.all([
         listReadings({ ...filters, limit: safeLimit }),
-        listReadings({ ...averagingFilters }),
+        fields.length ? listReadings({ ...averagingFilters }) : Promise.resolve([]),
       ]);
-      const averageRows = aggregateDailyRows(averagingItems, fields, {
-        visibleFromDate: filters.fromDate,
-        visibleToDate: filters.toDate,
-      });
+      const averageRows = fields.length
+        ? aggregateDailyRows(averagingItems, fields, {
+            visibleFromDate: filters.fromDate,
+            visibleToDate: filters.toDate,
+          })
+        : [];
+
+      if (loadRequestRef.current !== requestId) {
+        return;
+      }
 
       setItems(nextItems);
       setDailyAverageRows(averageRows);
       setCurrentPage(1);
       setMessage(
-        `Showing ${nextItems.length} ${effectiveTableMode.toLowerCase()} record(s) and ${averageRows.length} daily average row(s).`
+        fields.length
+          ? `Showing ${nextItems.length} ${effectiveTableMode.toLowerCase()} record(s) and ${averageRows.length} daily average row(s).`
+          : `Showing ${nextItems.length} reading record(s).`
       );
     } catch (error) {
-      setItems([]);
-      setDailyAverageRows([]);
-      setMessage(error.message || 'Failed to load readings.');
+      if (loadRequestRef.current === requestId) {
+        setItems([]);
+        setDailyAverageRows([]);
+        setMessage(error.message || 'Failed to load readings.');
+      }
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    if (selectedTableMode !== tableMode) {
-      setTableMode(selectedTableMode);
-    }
-  }, [selectedTableMode]);
+    const loadTimer = window.setTimeout(() => {
+      loadHistory();
+    }, 250);
 
-  useEffect(() => {
-    loadHistory();
-  }, [tableMode]);
+    return () => window.clearTimeout(loadTimer);
+  }, [fromDate, toDate, limit, tableMode]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, siteFilter, statusFilter, pageSize, visibleTable]);
-
-  async function handleReset() {
-    const defaultDateRange = getCurrentMonthDateRange();
-
-    setFromDate(defaultDateRange.fromDate);
-    setToDate(defaultDateRange.toDate);
-    setLimit(DEFAULT_LIMIT);
-    setSiteFilter('all');
-    setStatusFilter('all');
-    setSearchTerm('');
-    setPageSize('25');
-    setSelectedReading(null);
-    await loadHistory({ ...defaultDateRange, limit: DEFAULT_LIMIT });
-  }
+  }, [searchTerm, tableMode, statusFilter]);
 
   async function handleExport(nextFormat = exportFormat) {
     if (!items.length && !dailyAverageRows.length) {
@@ -606,7 +613,7 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
       return;
     }
 
-    if (!filteredItems.length && visibleTable === 'records') {
+    if (!filteredItems.length) {
       setMessage(`No records match the current filters for ${nextFormat.toUpperCase()} export.`);
       return;
     }
@@ -615,13 +622,14 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
     setExportOpen(false);
 
     try {
-      const fileBase = `nemexus-${tableMode.toLowerCase()}-readings-${new Date().toISOString().slice(0, 10)}`;
+      const fileBase = `nemexus-${tableMode === ALL_SITES ? 'all-sites' : tableMode.toLowerCase()}-readings-${new Date().toISOString().slice(0, 10)}`;
+      const exportSections = [
+        ...(visibleDailyAverageRows.length ? [{ name: 'Daily Averages', rows: buildTableRows(dailyAverageColumns, visibleDailyAverageRows) }] : []),
+        { name: 'Detailed Readings', rows: buildTableRows(activeColumns, filteredItems) },
+      ];
 
       if (nextFormat === 'xlsx') {
-        const blob = await buildXlsxBlob([
-          { name: 'Daily Averages', rows: buildTableRows(dailyAverageColumns, visibleDailyAverageRows) },
-          { name: 'Detailed Readings', rows: buildTableRows(activeColumns, filteredItems) },
-        ]);
+        const blob = await buildXlsxBlob(exportSections);
         downloadBlob(blob, `${fileBase}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       } else if (nextFormat === 'pdf') {
         const [{ jsPDF }, { default: autoTable }] = await Promise.all([
@@ -631,29 +639,25 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
         const doc = new jsPDF({ orientation: 'landscape' });
         doc.text('NemeXus Reading History', 14, 14);
         autoTable(doc, {
-          head: [dailyAverageColumns.map((column) => column.label)],
-          body: visibleDailyAverageRows.map((row) => dailyAverageColumns.map((column) => column.render(row))),
-          startY: 22,
-          styles: { fontSize: 7 },
-          headStyles: { fillColor: [17, 35, 59] },
-        });
-        autoTable(doc, {
           head: [activeColumns.map((column) => column.label)],
           body: filteredItems.map((row) => activeColumns.map((column) => column.render(row))),
-          startY: doc.lastAutoTable.finalY + 12,
+          startY: 22,
           styles: { fontSize: 6 },
           headStyles: { fillColor: [17, 35, 59] },
         });
         doc.save(`${fileBase}.pdf`);
       } else {
-        const sections = [
-          buildCsvSection('Daily Average Table', dailyAverageColumns, visibleDailyAverageRows),
-          buildCsvSection('Detailed Readings', activeColumns, filteredItems),
-        ];
+        const sections = exportSections.map((section) =>
+          buildCsvSection(
+            section.name,
+            section.name === 'Daily Averages' ? dailyAverageColumns : activeColumns,
+            section.name === 'Daily Averages' ? visibleDailyAverageRows : filteredItems
+          )
+        );
         downloadBlob(`\uFEFF${sections.join('\n\n')}`, `${fileBase}.csv`, 'text/csv;charset=utf-8;');
       }
 
-      setMessage(`Exported ${tableMode.toLowerCase()} readings as ${nextFormat.toUpperCase()}.`);
+      setMessage(`Exported ${tableMode === ALL_SITES ? 'all sites' : tableMode.toLowerCase()} readings as ${nextFormat.toUpperCase()}.`);
     } catch (error) {
       setMessage(error.message || 'Failed to export readings.');
     } finally {
@@ -671,32 +675,9 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
             </span>
             <h3>Office filters</h3>
           </div>
-          <button type="button" className="icon-button subtle filter-default-button" onClick={handleReset}>
-            <RefreshCw size={18} />
-            <span>Default</span>
-          </button>
         </header>
 
         <div className="readings-form-grid">
-          <div className="readings-table-toggle in-filters" aria-label="Reading table display">
-            <button
-              type="button"
-              className={visibleTable === 'averages' ? 'active' : ''}
-              onClick={() => setVisibleTable('averages')}
-            >
-              <Table2 size={17} />
-              Daily average rows
-            </button>
-            <button
-              type="button"
-              className={visibleTable === 'records' ? 'active' : ''}
-              onClick={() => setVisibleTable('records')}
-            >
-              <List size={17} />
-              {tableMode === CHLORINATION ? 'Chlorination records' : 'Deepwell records'}
-            </button>
-          </div>
-
           <label className="readings-field date-field">
             <span>From date</span>
             <div className="input-with-icon">
@@ -723,10 +704,9 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
 
           <label className="readings-field">
             <span>Site</span>
-            <select value={siteFilter} onChange={(event) => setSiteFilter(event.target.value)}>
-              <option value="all">All sites</option>
-              {siteOptions.map((site) => (
-                <option value={site.id} key={site.id}>{site.name}</option>
+            <select value={tableMode} onChange={(event) => setTableMode(event.target.value)}>
+              {SITE_TYPE_OPTIONS.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
               ))}
             </select>
           </label>
@@ -755,22 +735,9 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
               </div>
             </label>
 
-            <label className="readings-field">
-              <span>Rows/page</span>
-              <select value={pageSize} onChange={(event) => setPageSize(event.target.value)}>
-                <option value="10">10</option>
-                <option value="25">25</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-              </select>
-            </label>
           </div>
 
           <div className="readings-actions full">
-            <button type="button" className="load-button" disabled={loading} onClick={() => loadHistory()}>
-              <RefreshCw size={17} className={loading ? 'spin' : ''} />
-              {loading ? 'Loading...' : 'Load'}
-            </button>
             <ExportMenu
               exporting={exporting}
               open={exportOpen}
@@ -787,97 +754,60 @@ export default function ReadingsScreen({ selectedTableMode = CHLORINATION }) {
 
       {message ? <p className="readings-message">{message}</p> : null}
 
-      {visibleTable === 'averages' ? (
-        <>
-          <section className="panel">
-            <div className="panel-heading">
-              <h3>Daily average table</h3>
-              <span>{visibleDailyAverageRows.length} row(s)</span>
-            </div>
-            <div className="table-wrap readings-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    {dailyAverageColumns.map((column) => (
-                      <th key={column.key}>{column.label}</th>
+      <section className="panel">
+        <div className="panel-heading">
+          <h3>{SITE_TYPE_OPTIONS.find((option) => option.value === tableMode)?.label || 'All sites'} records</h3>
+          <span>{filteredItems.length} of {items.length} record(s)</span>
+        </div>
+        <div className="table-wrap readings-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Details</th>
+                {activeColumns.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {visibleItems.length ? (
+                visibleItems.map((row) => (
+                  <tr key={`${row.site_type}-${row.id}`}>
+                    <td>
+                      <button
+                        type="button"
+                        className="table-icon-button"
+                        aria-label="View reading details"
+                        onClick={() => setSelectedReading(row)}
+                      >
+                        <Eye size={16} />
+                      </button>
+                    </td>
+                    {activeColumns.map((column) => (
+                      <td key={column.key}>{column.render(row)}</td>
                     ))}
                   </tr>
-                </thead>
-                <tbody>
-                  {visibleDailyAverageRows.length ? (
-                    visibleDailyAverageRows.map((row) => (
-                      <tr key={row.id}>
-                        {dailyAverageColumns.map((column) => (
-                          <td key={column.key}>{column.render(row)}</td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={dailyAverageColumns.length}>No daily averages found.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
-      ) : (
-        <section className="panel">
-          <div className="panel-heading">
-            <h3>{tableMode === CHLORINATION ? 'Chlorination records' : 'Deepwell records'}</h3>
-            <span>{filteredItems.length} of {items.length} record(s)</span>
-          </div>
-          <div className="table-wrap readings-table-wrap">
-            <table>
-              <thead>
+                ))
+              ) : (
                 <tr>
-                  <th>Details</th>
-                  {activeColumns.map((column) => (
-                    <th key={column.key}>{column.label}</th>
-                  ))}
+                  <td colSpan={activeColumns.length + 1}>No readings found.</td>
                 </tr>
-              </thead>
-              <tbody>
-                {visibleItems.length ? (
-                  visibleItems.map((row) => (
-                    <tr key={`${row.site_type}-${row.id}`}>
-                      <td>
-                        <button
-                          type="button"
-                          className="table-icon-button"
-                          aria-label="View reading details"
-                          onClick={() => setSelectedReading(row)}
-                        >
-                          <Eye size={16} />
-                        </button>
-                      </td>
-                      {activeColumns.map((column) => (
-                        <td key={column.key}>{column.render(row)}</td>
-                      ))}
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={activeColumns.length + 1}>No readings found.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="readings-pagination">
+          <span>Page {currentSafePage} of {totalPages}</span>
+          <div>
+            <button type="button" disabled={currentSafePage <= 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>
+              Previous
+            </button>
+            <button type="button" disabled={currentSafePage >= totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>
+              Next
+            </button>
           </div>
-          <div className="readings-pagination">
-            <span>Page {currentSafePage} of {totalPages}</span>
-            <div>
-              <button type="button" disabled={currentSafePage <= 1} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>
-                Previous
-              </button>
-              <button type="button" disabled={currentSafePage >= totalPages} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>
-                Next
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
+        </div>
+      </section>
 
       {selectedReading ? (
         <div className="modal-backdrop" role="presentation" onClick={() => setSelectedReading(null)}>

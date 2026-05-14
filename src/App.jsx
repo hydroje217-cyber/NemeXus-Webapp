@@ -240,6 +240,7 @@ export default function App() {
       refreshing={refreshingDashboard}
       message={message}
       profile={profile}
+      session={session}
       lastUpdatedAt={lastUpdatedAt}
       themeMode={themeMode}
       workingId={workingId}

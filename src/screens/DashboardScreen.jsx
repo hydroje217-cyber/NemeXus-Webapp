@@ -3,16 +3,15 @@ import {
   AlertTriangle,
   ArrowUp,
   BarChart3,
+  Bell,
   CheckCircle2,
   ChevronDown,
   Droplets,
   FlaskConical,
   History,
-  Loader2,
   LogOut,
   Menu,
   Moon,
-  RefreshCw,
   Sun,
   Users,
   X,
@@ -43,6 +42,41 @@ function formatLastUpdated(value) {
   })}`;
 }
 
+function formatLoginTime(value) {
+  if (!value) {
+    return 'recently';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'recently';
+  }
+
+  return parsed.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function buildLoginNotification(profile, session, isOnline) {
+  if (!session?.user) {
+    return null;
+  }
+
+  const userName = profile?.full_name || session.user.user_metadata?.full_name || session.user.email || profile?.email || 'User';
+  const loginTime = session.user.last_sign_in_at || session.created_at;
+  const onlineStatus = isOnline ? 'currently online' : 'currently offline';
+
+  return {
+    key: `login-${session.user.id || 'current-user'}`,
+    severity: 'info',
+    title: 'User logged in',
+    detail: `${userName} logged in at ${formatLoginTime(loginTime)} and is ${onlineStatus}.`,
+  };
+}
+
 function getTabs(isAdmin) {
   const tabs = [
     { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
@@ -62,7 +96,6 @@ const DASHBOARD_SECTION_GROUPS = [
     label: 'Overview',
     sections: [
       { key: 'summary', label: 'Live Summary', icon: Zap },
-      { key: 'operations', label: 'Operations', icon: AlertTriangle },
     ],
   },
   {
@@ -81,6 +114,13 @@ const DASHBOARD_SECTION_GROUPS = [
   },
 ];
 
+const NOTIFICATION_SEVERITY_LABELS = {
+  all: 'All',
+  critical: 'Critical',
+  warning: 'Warning',
+  info: 'Info',
+};
+
 export default function DashboardScreen({
   activeView,
   dashboard,
@@ -90,11 +130,11 @@ export default function DashboardScreen({
   message,
   profile,
   refreshing,
+  session,
   themeMode,
   workingId,
   onApprove,
   onNavigate,
-  onRefresh,
   onRoleChange,
   onDeleteAccount,
   onSignOut,
@@ -102,22 +142,43 @@ export default function DashboardScreen({
 }) {
   const tabs = getTabs(isAdmin);
   const recentReadings = dashboard?.recentReadings ?? [];
-  const operationAlertCount = buildOperationAlerts(dashboard).length;
-  const [readingType, setReadingType] = useState('CHLORINATION');
+  const operationAlerts = buildOperationAlerts(dashboard);
+  const [isCurrentUserOnline, setIsCurrentUserOnline] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+
+    return window.navigator.onLine;
+  });
+  const loginNotification = buildLoginNotification(profile, session, isCurrentUserOnline);
+  const notifications = loginNotification ? [loginNotification, ...operationAlerts] : operationAlerts;
+  const operationAlertCount = operationAlerts.length;
+  const notificationCount = notifications.length;
   const [dashboardSection, setDashboardSection] = useState('summary');
   const [visibleDashboardSections, setVisibleDashboardSections] = useState(['summary']);
   const [dashboardScrollRequest, setDashboardScrollRequest] = useState(0);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [notificationSeverityFilter, setNotificationSeverityFilter] = useState('all');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [openSubnav, setOpenSubnav] = useState('dashboard');
   const brandMenuRef = useRef(null);
+  const desktopNotificationMenuRef = useRef(null);
+  const mobileNotificationMenuRef = useRef(null);
   const isDarkMode = themeMode === 'dark';
 
   useEffect(() => {
     function handleDocumentClick(event) {
       if (!brandMenuRef.current?.contains(event.target)) {
         setIsBrandMenuOpen(false);
+      }
+
+      if (
+        !desktopNotificationMenuRef.current?.contains(event.target) &&
+        !mobileNotificationMenuRef.current?.contains(event.target)
+      ) {
+        setIsNotificationPanelOpen(false);
       }
     }
 
@@ -136,13 +197,25 @@ export default function DashboardScreen({
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    function syncOnlineStatus() {
+      setIsCurrentUserOnline(window.navigator.onLine);
+    }
+
+    syncOnlineStatus();
+    window.addEventListener('online', syncOnlineStatus);
+    window.addEventListener('offline', syncOnlineStatus);
+
+    return () => {
+      window.removeEventListener('online', syncOnlineStatus);
+      window.removeEventListener('offline', syncOnlineStatus);
+    };
+  }, []);
+
   function renderActiveView() {
     if (activeView === 'readings') {
       return (
-        <ReadingsScreen
-          readings={recentReadings}
-          selectedTableMode={readingType}
-        />
+        <ReadingsScreen readings={recentReadings} />
       );
     }
 
@@ -171,7 +244,6 @@ export default function DashboardScreen({
     return (
       <OverviewScreen
         dashboard={dashboard}
-        isAdmin={isAdmin}
         refreshing={refreshing}
         activeSection={dashboardSection}
         scrollRequest={dashboardScrollRequest}
@@ -194,14 +266,70 @@ export default function DashboardScreen({
     setIsBrandMenuOpen(false);
   }
 
-  function handleReadingTypeSelect(nextReadingType) {
-    setReadingType(nextReadingType);
-    setIsSidebarOpen(false);
+  function handleNotificationSelect() {
+    setIsNotificationPanelOpen((isOpen) => !isOpen);
     setIsBrandMenuOpen(false);
   }
 
+  function renderNotificationPanel() {
+    const severityTabs = Object.entries(NOTIFICATION_SEVERITY_LABELS).map(([key, label]) => ({
+      key,
+      label,
+      count: key === 'all' ? notificationCount : notifications.filter((alert) => alert.severity === key).length,
+    }));
+    const filteredAlerts =
+      notificationSeverityFilter === 'all'
+        ? notifications
+        : notifications.filter((alert) => alert.severity === notificationSeverityFilter);
+    const activeSeverityLabel =
+      notificationSeverityFilter === 'all'
+        ? 'notifications'
+        : `${NOTIFICATION_SEVERITY_LABELS[notificationSeverityFilter].toLowerCase()} alerts`;
+
+    return (
+      <div className="notification-panel" role="menu" aria-label="Notifications">
+        <div className="notification-panel-head">
+          <div>
+            <strong>Notifications</strong>
+            <span>{notificationCount ? `${notificationCount} notification(s)` : 'No notifications'}</span>
+          </div>
+        </div>
+        <div className="notification-severity-tabs" role="tablist" aria-label="Alert seriousness">
+          {severityTabs.map((tab) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={notificationSeverityFilter === tab.key}
+              className={notificationSeverityFilter === tab.key ? 'active' : ''}
+              key={tab.key}
+              onClick={() => setNotificationSeverityFilter(tab.key)}
+            >
+              <span>{tab.label}</span>
+              <strong>{tab.count}</strong>
+            </button>
+          ))}
+        </div>
+        <div className="notification-list">
+          {filteredAlerts.length ? (
+            filteredAlerts.map((alert) => (
+              <article className={`notification-item ${alert.severity}`} key={alert.key}>
+                <div>
+                  <strong>{alert.title}</strong>
+                  <span>{alert.severity}</span>
+                </div>
+                <p>{alert.detail}</p>
+              </article>
+            ))
+          ) : (
+            <p className="notification-empty">No {activeSeverityLabel} right now.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   function handleTabSelect(tabKey) {
-    const hasSubnav = tabKey === 'dashboard' || tabKey === 'readings';
+    const hasSubnav = tabKey === 'dashboard';
 
     if (hasSubnav && activeView === tabKey) {
       setOpenSubnav((currentSubnav) => (currentSubnav === tabKey ? '' : tabKey));
@@ -350,24 +478,6 @@ export default function DashboardScreen({
                     ))}
                   </div>
                 ) : null}
-                {tab.key === 'readings' && activeView === 'readings' && openSubnav === 'readings' ? (
-                  <div className="tabs-subnav">
-                    <button
-                      type="button"
-                      className={readingType === 'CHLORINATION' ? 'active' : ''}
-                      onClick={() => handleReadingTypeSelect('CHLORINATION')}
-                    >
-                      Chlorination
-                    </button>
-                    <button
-                      type="button"
-                      className={readingType === 'DEEPWELL' ? 'active' : ''}
-                      onClick={() => handleReadingTypeSelect('DEEPWELL')}
-                    >
-                      Deepwell
-                    </button>
-                  </div>
-                ) : null}
               </div>
             );
           })}
@@ -391,9 +501,19 @@ export default function DashboardScreen({
                 <p className="eyebrow">Live Supabase workspace</p>
                 <h2>{titleize(activeView)}</h2>
               </div>
-              <button className="mobile-title-refresh" type="button" aria-label="Refresh dashboard" onClick={onRefresh} disabled={loading}>
-                {loading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
-              </button>
+              <div className="notification-menu-wrap mobile-notification-wrap" ref={mobileNotificationMenuRef}>
+                <button
+                  className="mobile-title-refresh notification-button compact"
+                  type="button"
+                  aria-label={`${notificationCount} notifications`}
+                  aria-expanded={isNotificationPanelOpen}
+                  onClick={handleNotificationSelect}
+                >
+                  <Bell size={16} />
+                  {notificationCount ? <span className="notification-count">{notificationCount}</span> : null}
+                </button>
+                {isNotificationPanelOpen ? renderNotificationPanel() : null}
+              </div>
             </div>
           </div>
           <div className="topbar-status-row">
@@ -412,10 +532,19 @@ export default function DashboardScreen({
                 <span aria-hidden="true" />
                 {formatLastUpdated(lastUpdatedAt)}
               </span>
-              <button className="refresh-button" type="button" onClick={onRefresh} disabled={loading}>
-                {loading ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} />}
-                <span className="refresh-button-label">Refresh</span>
-              </button>
+              <div className="notification-menu-wrap" ref={desktopNotificationMenuRef}>
+                <button
+                  className="notification-button"
+                  type="button"
+                  aria-expanded={isNotificationPanelOpen}
+                  onClick={handleNotificationSelect}
+                >
+                  <Bell size={16} />
+                  <span className="notification-button-label">Notifications</span>
+                  {notificationCount ? <span className="notification-count">{notificationCount}</span> : null}
+                </button>
+                {isNotificationPanelOpen ? renderNotificationPanel() : null}
+              </div>
             </div>
           </div>
         </header>

@@ -69,6 +69,21 @@ function applyReadingFilters(query, { fromDate, toDate, limit }) {
 }
 
 export async function listReadings({ siteType, fromDate, toDate, limit }) {
+  if (!siteType || siteType === 'all') {
+    const [chlorinationReadings, deepwellReadings] = await Promise.all([
+      listReadings({ siteType: 'CHLORINATION', fromDate, toDate, limit }),
+      listReadings({ siteType: 'DEEPWELL', fromDate, toDate, limit }),
+    ]);
+
+    const mergedReadings = [...chlorinationReadings, ...deepwellReadings].sort((first, second) =>
+      String(second.slot_datetime || second.reading_datetime || '').localeCompare(
+        String(first.slot_datetime || first.reading_datetime || '')
+      )
+    );
+
+    return typeof limit === 'number' && Number.isFinite(limit) ? mergedReadings.slice(0, limit) : mergedReadings;
+  }
+
   if (siteType === 'CHLORINATION' || siteType === 'DEEPWELL') {
     const { data, error } = await applyReadingFilters(
       supabase.from('daily_site_summaries').select(DAILY_SUMMARY_SELECT).eq('sites.type', siteType),
