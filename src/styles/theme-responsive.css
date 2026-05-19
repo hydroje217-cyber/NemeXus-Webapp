@@ -749,6 +749,18 @@
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.24);
 }
 
+.dark-mode .refresh-view-button {
+  border-color: #2d4654;
+  background: #10212e;
+  color: #79dbe6;
+}
+
+.dark-mode .refresh-view-button:hover:not(:disabled) {
+  border-color: #35c8d6;
+  background: #143241;
+  color: #d6fbff;
+}
+
 .dark-mode .notification-count {
   background: #f7d36b;
   color: #2d1b00;
@@ -1292,12 +1304,18 @@
     display: none;
   }
 
+  .refresh-view-button {
+    display: none;
+  }
+
   .topbar-actions .notification-menu-wrap {
     display: none;
   }
 
   .mobile-notification-wrap {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex: 0 0 auto;
     margin-left: auto;
   }
@@ -1612,6 +1630,14 @@
 
   .login-panel {
     padding: 0;
+  }
+
+  .mobile-notification-wrap .refresh-view-button.compact {
+    display: inline-flex;
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    min-height: 42px;
   }
 
   .login-hero {
@@ -2052,6 +2078,12 @@
     gap: 5px;
     padding: 0 8px;
     font-size: 0.66rem;
+  }
+
+  .refresh-view-button.compact {
+    width: 30px;
+    min-width: 30px;
+    min-height: 30px;
   }
 
   .notification-count {
