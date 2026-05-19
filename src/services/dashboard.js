@@ -168,6 +168,17 @@ export async function getProfile(userId) {
   return data;
 }
 
+export async function updateProfileEmail(profileId, email) {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ email })
+    .eq('id', profileId);
+
+  if (error) {
+    throw new Error(error.message || 'Failed to update profile email.');
+  }
+}
+
 export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const todayIso = startOfTodayIso();
   const checkpointFromIso = new Date(new Date(todayIso).getTime() - 24 * 60 * 60 * 1000).toISOString();
@@ -300,6 +311,16 @@ export async function assignProfileRole(profileId, nextRole) {
 
   if (error) {
     throw new Error(error.message || 'Failed to update role.');
+  }
+}
+
+export async function resetProfilePasswordToDefault(profileId) {
+  const { error } = await supabase.rpc('reset_profile_password_to_default', {
+    target_profile_id: profileId,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to reset account password.');
   }
 }
 

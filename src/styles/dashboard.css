@@ -1805,6 +1805,25 @@ th {
   padding: 0 12px;
 }
 
+.account-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reset-password-button {
+  min-height: 36px;
+  border: 1px solid #a9d7dc;
+  background: #effcfd;
+  color: #0f7c87;
+  padding: 0 12px;
+}
+
+.reset-password-button:hover {
+  background: #dff8fb;
+}
+
 .delete-account-button:hover {
   background: #ffe3e3;
 }
@@ -1812,7 +1831,7 @@ th {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: 3000;
   display: grid;
   place-items: center;
   background: rgba(7, 18, 29, 0.58);
@@ -1844,6 +1863,30 @@ th {
 .confirm-dialog p {
   color: #42535c;
   line-height: 1.5;
+}
+
+.account-edit-dialog {
+  width: min(480px, 100%);
+}
+
+.account-edit-form {
+  display: grid;
+  gap: 14px;
+}
+
+.account-edit-form label {
+  display: grid;
+  gap: 8px;
+  color: #42535c;
+  font-weight: 800;
+}
+
+.account-edit-form input:disabled {
+  cursor: not-allowed;
+  border-color: #d7e1e5;
+  background: #edf3f5;
+  color: #60727c;
+  opacity: 1;
 }
 
 .dialog-close-button {

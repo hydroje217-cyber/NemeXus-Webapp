@@ -623,6 +623,16 @@
   background: #442129;
 }
 
+.dark-mode .reset-password-button {
+  background: #173342;
+  border-color: #2e6270;
+  color: #79dbe6;
+}
+
+.dark-mode .reset-password-button:hover {
+  background: #1f4050;
+}
+
 .dark-mode .confirm-dialog {
   background: #111c27;
   border-color: #2d4654;
@@ -644,6 +654,20 @@
 .dark-mode .confirm-dialog p,
 .dark-mode .reading-detail-grid span {
   color: #b7cbd2;
+}
+
+.dark-mode .account-edit-form label {
+  color: #d6e5e9;
+}
+
+.dark-mode .login-reset-form label {
+  color: #d6e5e9;
+}
+
+.dark-mode .account-edit-form input:disabled {
+  border-color: #2b4351;
+  background: #0f1b25;
+  color: #849ba6;
 }
 
 .dark-mode .reading-detail-grid > div {
@@ -1542,7 +1566,7 @@
   }
 
   .login-shell {
-    padding: 14px;
+    padding: 8px;
   }
 
   .loading-shell {
@@ -1587,7 +1611,19 @@
   }
 
   .login-panel {
-    padding: 18px;
+    padding: 0;
+  }
+
+  .login-hero {
+    padding: 18px 18px 16px;
+  }
+
+  .login-form {
+    padding: 20px;
+  }
+
+  .auth-switch {
+    padding: 0 20px 20px;
   }
 }
 

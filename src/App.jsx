@@ -12,6 +12,8 @@ import {
   getDashboardSnapshot,
   getProfile,
   isOfficeRole,
+  resetProfilePasswordToDefault,
+  updateProfileEmail,
 } from './services/dashboard';
 
 export default function App() {
@@ -170,6 +172,50 @@ export default function App() {
     setLastUpdatedAt(null);
   }
 
+  async function handleUpdateAccount({ email, password }) {
+    if (!session?.user) {
+      throw new Error('No signed-in account found.');
+    }
+
+    const nextEmail = email.trim();
+    const currentEmail = session.user.email || profile?.email || '';
+    const authUpdates = {};
+
+    if (nextEmail && nextEmail !== currentEmail) {
+      authUpdates.email = nextEmail;
+    }
+
+    if (password) {
+      authUpdates.password = password;
+    }
+
+    if (!Object.keys(authUpdates).length) {
+      throw new Error('Enter a new email or password to update.');
+    }
+
+    const { data, error } = await supabase.auth.updateUser(authUpdates);
+
+    if (error) {
+      throw new Error(error.message || 'Failed to update account.');
+    }
+
+    if (authUpdates.email) {
+      await updateProfileEmail(session.user.id, nextEmail);
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('nemexus-last-email', nextEmail);
+      }
+    }
+
+    const nextSession = data?.user ? { ...session, user: data.user } : session;
+    setSession(nextSession);
+    await loadProfile(nextSession);
+
+    return authUpdates.email
+      ? 'Account updated. Check the new email inbox if Supabase asks for confirmation.'
+      : 'Password updated.';
+  }
+
   async function handleApprove(account) {
     setWorkingId(account.id);
     setMessage('');
@@ -195,6 +241,21 @@ export default function App() {
       setMessage(`${account.full_name || account.email || 'Account'} updated to ${nextRole}.`);
     } catch (error) {
       setMessage(error.message || 'Failed to update role.');
+    } finally {
+      setWorkingId('');
+    }
+  }
+
+  async function handlePasswordReset(account) {
+    setWorkingId(account.id);
+    setMessage('');
+
+    try {
+      await resetProfilePasswordToDefault(account.id);
+      await loadDashboard({ silent: true });
+      setMessage(`${account.full_name || account.email || 'Account'} password reset to ${account.role || 'role'} default.`);
+    } catch (error) {
+      setMessage(error.message || 'Failed to reset password.');
     } finally {
       setWorkingId('');
     }
@@ -248,7 +309,9 @@ export default function App() {
       onNavigate={setActiveView}
       onRefresh={() => loadDashboard()}
       onRoleChange={handleRoleChange}
+      onPasswordReset={handlePasswordReset}
       onDeleteAccount={handleDeleteAccount}
+      onUpdateAccount={handleUpdateAccount}
       onSignOut={handleSignOut}
       onThemeToggle={handleThemeToggle}
     />

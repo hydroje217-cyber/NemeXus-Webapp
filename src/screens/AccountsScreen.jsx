@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Trash2, X } from 'lucide-react';
+import { KeyRound, Trash2, X } from 'lucide-react';
 
 const ROLE_OPTIONS = ['operator', 'supervisor', 'manager', 'admin'];
 
@@ -19,9 +19,17 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-export default function AccountsScreen({ accounts, currentProfileId, workingId, onRoleChange, onDeleteAccount }) {
+export default function AccountsScreen({
+  accounts,
+  currentProfileId,
+  workingId,
+  onRoleChange,
+  onPasswordReset,
+  onDeleteAccount,
+}) {
   const [pendingDeleteAccount, setPendingDeleteAccount] = useState(null);
   const [pendingRoleChange, setPendingRoleChange] = useState(null);
+  const [pendingPasswordReset, setPendingPasswordReset] = useState(null);
 
   function handleDeleteConfirm() {
     if (!pendingDeleteAccount) {
@@ -39,6 +47,15 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
 
     onRoleChange(pendingRoleChange.account, pendingRoleChange.nextRole);
     setPendingRoleChange(null);
+  }
+
+  function handlePasswordResetConfirm() {
+    if (!pendingPasswordReset) {
+      return;
+    }
+
+    onPasswordReset(pendingPasswordReset);
+    setPendingPasswordReset(null);
   }
 
   return (
@@ -93,17 +110,29 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
                     <td>{account.is_approved ? 'Yes' : 'No'}</td>
                     <td>{formatDateTime(account.created_at)}</td>
                     <td>
-                      <button
-                        className="delete-account-button"
-                        type="button"
-                        disabled={isCurrentAccount || workingId === account.id}
-                        title={isCurrentAccount ? 'You cannot delete your own account.' : undefined}
-                        aria-label={`Delete ${account.full_name || account.email || 'account'}`}
-                        onClick={() => setPendingDeleteAccount(account)}
-                      >
-                        <Trash2 size={16} />
-                        {isCurrentAccount ? 'Current account' : 'Delete'}
-                      </button>
+                      <div className="account-action-row">
+                        <button
+                          className="reset-password-button"
+                          type="button"
+                          disabled={workingId === account.id}
+                          aria-label={`Reset password for ${account.full_name || account.email || 'account'}`}
+                          onClick={() => setPendingPasswordReset(account)}
+                        >
+                          <KeyRound size={16} />
+                          Reset
+                        </button>
+                        <button
+                          className="delete-account-button"
+                          type="button"
+                          disabled={isCurrentAccount || workingId === account.id}
+                          title={isCurrentAccount ? 'You cannot delete your own account.' : undefined}
+                          aria-label={`Delete ${account.full_name || account.email || 'account'}`}
+                          onClick={() => setPendingDeleteAccount(account)}
+                        >
+                          <Trash2 size={16} />
+                          {isCurrentAccount ? 'Current account' : 'Delete'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -176,6 +205,41 @@ export default function AccountsScreen({ accounts, currentProfileId, workingId, 
               </button>
               <button type="button" onClick={handleRoleChangeConfirm}>
                 Confirm role
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingPasswordReset ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setPendingPasswordReset(null)}>
+          <div
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="password-reset-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="dialog-close-button"
+              type="button"
+              aria-label="Cancel password reset"
+              onClick={() => setPendingPasswordReset(null)}
+            >
+              <X size={18} />
+            </button>
+            <h3 id="password-reset-title">Reset password?</h3>
+            <p>
+              Set {pendingPasswordReset.full_name || pendingPasswordReset.email || 'this account'} to the default{' '}
+              {pendingPasswordReset.role || 'role'} password: <strong>{pendingPasswordReset.role || 'operator'}</strong>.
+            </p>
+            <div className="confirm-dialog-actions">
+              <button type="button" className="secondary-action" onClick={() => setPendingPasswordReset(null)}>
+                Cancel
+              </button>
+              <button type="button" className="primary-action" onClick={handlePasswordResetConfirm}>
+                <KeyRound size={16} />
+                Reset password
               </button>
             </div>
           </div>

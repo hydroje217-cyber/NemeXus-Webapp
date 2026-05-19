@@ -7,11 +7,15 @@ import {
   CheckCircle2,
   ChevronDown,
   Droplets,
+  Eye,
+  EyeOff,
   FlaskConical,
   History,
+  Loader2,
   LogOut,
   Menu,
   Moon,
+  Pencil,
   Sun,
   Users,
   X,
@@ -136,7 +140,9 @@ export default function DashboardScreen({
   onApprove,
   onNavigate,
   onRoleChange,
+  onPasswordReset,
   onDeleteAccount,
+  onUpdateAccount,
   onSignOut,
   onThemeToggle,
 }) {
@@ -159,6 +165,12 @@ export default function DashboardScreen({
   const [dashboardScrollRequest, setDashboardScrollRequest] = useState(0);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [isEditAccountOpen, setIsEditAccountOpen] = useState(false);
+  const [accountEmail, setAccountEmail] = useState(profile?.email || session?.user?.email || '');
+  const [accountPassword, setAccountPassword] = useState('');
+  const [showAccountPassword, setShowAccountPassword] = useState(false);
+  const [accountMessage, setAccountMessage] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
   const [notificationSeverityFilter, setNotificationSeverityFilter] = useState('all');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -167,6 +179,15 @@ export default function DashboardScreen({
   const desktopNotificationMenuRef = useRef(null);
   const mobileNotificationMenuRef = useRef(null);
   const isDarkMode = themeMode === 'dark';
+
+  useEffect(() => {
+    if (!isEditAccountOpen) {
+      setAccountEmail(profile?.email || session?.user?.email || '');
+      setAccountPassword('');
+      setShowAccountPassword(false);
+      setAccountMessage('');
+    }
+  }, [isEditAccountOpen, profile?.email, session?.user?.email]);
 
   useEffect(() => {
     function handleDocumentClick(event) {
@@ -236,6 +257,7 @@ export default function DashboardScreen({
           currentProfileId={profile?.id}
           workingId={workingId}
           onRoleChange={onRoleChange}
+          onPasswordReset={onPasswordReset}
           onDeleteAccount={onDeleteAccount}
         />
       );
@@ -269,6 +291,43 @@ export default function DashboardScreen({
   function handleNotificationSelect() {
     setIsNotificationPanelOpen((isOpen) => !isOpen);
     setIsBrandMenuOpen(false);
+  }
+
+  function normalizeEmail(value) {
+    const trimmed = value.trim();
+    return trimmed && !trimmed.includes('@') ? `${trimmed}@gmail.com` : trimmed;
+  }
+
+  function handleEditAccountOpen() {
+    setAccountEmail(profile?.email || session?.user?.email || '');
+    setAccountPassword('');
+    setAccountMessage('');
+    setIsBrandMenuOpen(false);
+    setIsEditAccountOpen(true);
+  }
+
+  async function handleAccountSubmit(event) {
+    event.preventDefault();
+
+    const normalizedEmail = normalizeEmail(accountEmail);
+    const nextPassword = accountPassword.trim();
+
+    setAccountEmail(normalizedEmail);
+    setAccountBusy(true);
+    setAccountMessage('');
+
+    try {
+      const successMessage = await onUpdateAccount({
+        email: normalizedEmail,
+        password: nextPassword,
+      });
+      setAccountPassword('');
+      setAccountMessage(successMessage || 'Account updated.');
+    } catch (error) {
+      setAccountMessage(error.message || 'Failed to update account.');
+    } finally {
+      setAccountBusy(false);
+    }
   }
 
   function renderNotificationPanel() {
@@ -420,6 +479,14 @@ export default function DashboardScreen({
                 <button
                   type="button"
                   role="menuitem"
+                  onClick={handleEditAccountOpen}
+                >
+                  <Pencil size={16} />
+                  Edit account
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
                   onClick={onSignOut}
                 >
                   <LogOut size={16} />
@@ -561,6 +628,81 @@ export default function DashboardScreen({
       >
         <ArrowUp size={22} />
       </button>
+
+      {isEditAccountOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsEditAccountOpen(false)}>
+          <section
+            className="confirm-dialog account-edit-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-account-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="dialog-close-button"
+              type="button"
+              aria-label="Close edit account"
+              onClick={() => setIsEditAccountOpen(false)}
+            >
+              <X size={18} />
+            </button>
+            <h3 id="edit-account-title">Edit account</h3>
+            <form className="account-edit-form" onSubmit={handleAccountSubmit}>
+              <label>
+                Name
+                <input type="text" value={profile?.full_name || ''} readOnly disabled />
+              </label>
+              <label>
+                Gmail
+                <input
+                  type="text"
+                  inputMode="email"
+                  value={accountEmail}
+                  onChange={(event) => setAccountEmail(event.target.value)}
+                  autoComplete="email"
+                  required
+                />
+              </label>
+              <label>
+                New password
+                <div className="password-input-wrap">
+                  <input
+                    type={showAccountPassword ? 'text' : 'password'}
+                    value={accountPassword}
+                    onChange={(event) => setAccountPassword(event.target.value)}
+                    autoComplete="new-password"
+                    minLength={6}
+                    placeholder="Leave blank to keep current password"
+                  />
+                  <button
+                    type="button"
+                    className="password-visibility-button"
+                    aria-label={showAccountPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowAccountPassword((current) => !current)}
+                  >
+                    {showAccountPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+              {accountMessage ? <p className="form-message">{accountMessage}</p> : null}
+              <div className="confirm-dialog-actions">
+                <button
+                  type="button"
+                  className="secondary-action"
+                  onClick={() => setIsEditAccountOpen(false)}
+                  disabled={accountBusy}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-action" disabled={accountBusy}>
+                  {accountBusy ? <Loader2 className="spin" size={16} /> : <Pencil size={16} />}
+                  Save account
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }
