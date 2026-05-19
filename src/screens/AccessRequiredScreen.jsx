@@ -20,7 +20,7 @@ export default function AccessRequiredScreen({ onSignOut }) {
       <section className="login-panel">
         <BrandLockup
           title="Dashboard Access Required"
-          subtitle="This web dashboard is only for manager, supervisor, and admin accounts."
+          subtitle="This web dashboard is only for manager, supervisor, general manager, and admin accounts."
         />
         <button className="secondary-button" type="button" onClick={onSignOut}>
           <LogOut size={16} />

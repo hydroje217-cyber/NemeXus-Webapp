@@ -129,6 +129,7 @@ export default function DashboardScreen({
   activeView,
   dashboard,
   isAdmin,
+  isGeneralManager,
   lastUpdatedAt,
   loading,
   message,
@@ -256,6 +257,7 @@ export default function DashboardScreen({
           accounts={dashboard?.profiles ?? []}
           currentProfileId={profile?.id}
           workingId={workingId}
+          isGeneralManager={isGeneralManager}
           onRoleChange={onRoleChange}
           onPasswordReset={onPasswordReset}
           onDeleteAccount={onDeleteAccount}

@@ -14,7 +14,8 @@ import {
 } from '../utils/production';
 import { enrichReadingsWithInferredShiftOwnership } from '../utils/shifts';
 
-const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin']);
+export const ADMIN_ROLES = new Set(['admin', 'general manager']);
+const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin', 'general manager']);
 
 const DAILY_SUMMARY_SELECT =
   'id, site_id, summary_date, source, source_file, production_m3, power_kwh, chlorine_kg, avg_flowrate_m3hr, avg_pressure_psi, avg_rc_ppm, avg_turbidity_ntu, avg_ph, avg_tds_ppm, peroxide_liters, operating_hours, scheduled_downtime_hours, unscheduled_downtime_hours, avg_upstream_pressure_psi, avg_downstream_pressure_psi, avg_vfd_frequency_hz, avg_voltage_l1_v, avg_voltage_l2_v, avg_voltage_l3_v, avg_amperage_a, created_at, updated_at, site:sites!inner(id, name, type)';
@@ -152,6 +153,10 @@ function throwIfError(result, message) {
 
 export function isOfficeRole(role) {
   return OFFICE_ROLES.has(role);
+}
+
+export function isAdminRole(role) {
+  return ADMIN_ROLES.has(role);
 }
 
 export async function getProfile(userId) {
@@ -314,13 +319,31 @@ export async function assignProfileRole(profileId, nextRole) {
   }
 }
 
-export async function resetProfilePasswordToDefault(profileId) {
-  const { error } = await supabase.rpc('reset_profile_password_to_default', {
-    target_profile_id: profileId,
+export async function resetProfilePassword(profileId, password) {
+  const { data, error } = await supabase.functions.invoke('reset-profile-password', {
+    body: {
+      profileId,
+      password,
+    },
   });
 
   if (error) {
-    throw new Error(error.message || 'Failed to reset account password.');
+    let message = error.message;
+
+    if (error.context?.json) {
+      try {
+        const errorBody = await error.context.json();
+        message = errorBody?.error || message;
+      } catch {
+        message = error.message;
+      }
+    }
+
+    throw new Error(message || 'Failed to reset account password.');
+  }
+
+  if (data?.error) {
+    throw new Error(data.error);
   }
 }
 

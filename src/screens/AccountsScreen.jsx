@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { KeyRound, Trash2, X } from 'lucide-react';
+import { Eye, EyeOff, KeyRound, Trash2, X } from 'lucide-react';
 
-const ROLE_OPTIONS = ['operator', 'supervisor', 'manager', 'admin'];
+const ROLE_OPTIONS = ['operator', 'supervisor', 'manager', 'general manager', 'admin'];
 
 function formatDateTime(value) {
   if (!value) {
@@ -22,6 +22,7 @@ function formatDateTime(value) {
 export default function AccountsScreen({
   accounts,
   currentProfileId,
+  isGeneralManager,
   workingId,
   onRoleChange,
   onPasswordReset,
@@ -30,6 +31,8 @@ export default function AccountsScreen({
   const [pendingDeleteAccount, setPendingDeleteAccount] = useState(null);
   const [pendingRoleChange, setPendingRoleChange] = useState(null);
   const [pendingPasswordReset, setPendingPasswordReset] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   function handleDeleteConfirm() {
     if (!pendingDeleteAccount) {
@@ -54,8 +57,16 @@ export default function AccountsScreen({
       return;
     }
 
-    onPasswordReset(pendingPasswordReset);
+    onPasswordReset(pendingPasswordReset, newPassword.trim());
     setPendingPasswordReset(null);
+    setNewPassword('');
+    setShowNewPassword(false);
+  }
+
+  function handlePasswordResetCancel() {
+    setPendingPasswordReset(null);
+    setNewPassword('');
+    setShowNewPassword(false);
   }
 
   return (
@@ -83,6 +94,7 @@ export default function AccountsScreen({
             <tbody>
               {accounts.map((account) => {
                 const isCurrentAccount = account.id === currentProfileId;
+                const isProtectedAdmin = isGeneralManager && account.role === 'admin';
 
                 return (
                   <tr key={account.id}>
@@ -91,7 +103,8 @@ export default function AccountsScreen({
                     <td>
                       <select
                         value={account.role || 'operator'}
-                        disabled={workingId === account.id}
+                        disabled={workingId === account.id || isProtectedAdmin}
+                        title={isProtectedAdmin ? 'General managers cannot change admin roles.' : undefined}
                         onChange={(event) =>
                           setPendingRoleChange({
                             account,
@@ -114,9 +127,14 @@ export default function AccountsScreen({
                         <button
                           className="reset-password-button"
                           type="button"
-                          disabled={workingId === account.id}
+                          disabled={workingId === account.id || isProtectedAdmin}
+                          title={isProtectedAdmin ? 'General managers cannot reset admin account passwords.' : undefined}
                           aria-label={`Reset password for ${account.full_name || account.email || 'account'}`}
-                          onClick={() => setPendingPasswordReset(account)}
+                          onClick={() => {
+                            setNewPassword('');
+                            setShowNewPassword(false);
+                            setPendingPasswordReset(account);
+                          }}
                         >
                           <KeyRound size={16} />
                           Reset
@@ -124,13 +142,19 @@ export default function AccountsScreen({
                         <button
                           className="delete-account-button"
                           type="button"
-                          disabled={isCurrentAccount || workingId === account.id}
-                          title={isCurrentAccount ? 'You cannot delete your own account.' : undefined}
+                          disabled={isCurrentAccount || workingId === account.id || isProtectedAdmin}
+                          title={
+                            isCurrentAccount
+                              ? 'You cannot delete your own account.'
+                              : isProtectedAdmin
+                                ? 'General managers cannot delete admin accounts.'
+                                : undefined
+                          }
                           aria-label={`Delete ${account.full_name || account.email || 'account'}`}
                           onClick={() => setPendingDeleteAccount(account)}
                         >
                           <Trash2 size={16} />
-                          {isCurrentAccount ? 'Current account' : 'Delete'}
+                          {isCurrentAccount ? 'Current account' : isProtectedAdmin ? 'Protected admin' : 'Delete'}
                         </button>
                       </div>
                     </td>
@@ -212,7 +236,7 @@ export default function AccountsScreen({
       ) : null}
 
       {pendingPasswordReset ? (
-        <div className="modal-backdrop" role="presentation" onClick={() => setPendingPasswordReset(null)}>
+        <div className="modal-backdrop" role="presentation" onClick={handlePasswordResetCancel}>
           <div
             className="confirm-dialog"
             role="dialog"
@@ -224,24 +248,49 @@ export default function AccountsScreen({
               className="dialog-close-button"
               type="button"
               aria-label="Cancel password reset"
-              onClick={() => setPendingPasswordReset(null)}
+              onClick={handlePasswordResetCancel}
             >
               <X size={18} />
             </button>
-            <h3 id="password-reset-title">Reset password?</h3>
-            <p>
-              Set {pendingPasswordReset.full_name || pendingPasswordReset.email || 'this account'} to the default{' '}
-              {pendingPasswordReset.role || 'role'} password: <strong>{pendingPasswordReset.role || 'operator'}</strong>.
-            </p>
-            <div className="confirm-dialog-actions">
-              <button type="button" className="secondary-action" onClick={() => setPendingPasswordReset(null)}>
-                Cancel
-              </button>
-              <button type="button" className="primary-action" onClick={handlePasswordResetConfirm}>
-                <KeyRound size={16} />
-                Reset password
-              </button>
-            </div>
+            <h3 id="password-reset-title">Set new password</h3>
+            <form className="account-edit-form" onSubmit={(event) => {
+              event.preventDefault();
+              handlePasswordResetConfirm();
+            }}>
+              <p>
+                Enter a new password for {pendingPasswordReset.full_name || pendingPasswordReset.email || 'this account'}.
+              </p>
+              <label>
+                New password
+                <div className="password-input-wrap">
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    autoComplete="new-password"
+                    minLength={6}
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-visibility-button"
+                    aria-label={showNewPassword ? 'Hide password' : 'Show password'}
+                    onClick={() => setShowNewPassword((current) => !current)}
+                  >
+                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </label>
+              <div className="confirm-dialog-actions">
+                <button type="button" className="secondary-action" onClick={handlePasswordResetCancel}>
+                  Cancel
+                </button>
+                <button type="submit" className="primary-action" disabled={newPassword.trim().length < 6}>
+                  <KeyRound size={16} />
+                  Save password
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}

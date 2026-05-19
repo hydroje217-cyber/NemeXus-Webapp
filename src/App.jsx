@@ -11,8 +11,9 @@ import {
   deleteProfileAccount,
   getDashboardSnapshot,
   getProfile,
+  isAdminRole,
   isOfficeRole,
-  resetProfilePasswordToDefault,
+  resetProfilePassword,
   updateProfileEmail,
 } from './services/dashboard';
 
@@ -34,7 +35,8 @@ export default function App() {
     return window.localStorage.getItem('nemexus-theme') || 'dark';
   });
 
-  const isAdmin = profile?.role === 'admin';
+  const isAdmin = isAdminRole(profile?.role);
+  const isGeneralManager = profile?.role === 'general manager';
   const canUseDashboard = isOfficeRole(profile?.role);
 
   async function loadDashboard({ silent = false } = {}) {
@@ -232,6 +234,11 @@ export default function App() {
   }
 
   async function handleRoleChange(account, nextRole) {
+    if (isGeneralManager && account.role === 'admin') {
+      setMessage('General managers cannot change admin account roles.');
+      return;
+    }
+
     setWorkingId(account.id);
     setMessage('');
 
@@ -246,14 +253,19 @@ export default function App() {
     }
   }
 
-  async function handlePasswordReset(account) {
+  async function handlePasswordReset(account, password) {
+    if (isGeneralManager && account.role === 'admin') {
+      setMessage('General managers cannot reset admin account passwords.');
+      return;
+    }
+
     setWorkingId(account.id);
     setMessage('');
 
     try {
-      await resetProfilePasswordToDefault(account.id);
+      await resetProfilePassword(account.id, password);
       await loadDashboard({ silent: true });
-      setMessage(`${account.full_name || account.email || 'Account'} password reset to ${account.role || 'role'} default.`);
+      setMessage(`${account.full_name || account.email || 'Account'} password updated.`);
     } catch (error) {
       setMessage(error.message || 'Failed to reset password.');
     } finally {
@@ -262,6 +274,11 @@ export default function App() {
   }
 
   async function handleDeleteAccount(account) {
+    if (isGeneralManager && account.role === 'admin') {
+      setMessage('General managers cannot delete admin accounts.');
+      return;
+    }
+
     setWorkingId(account.id);
     setMessage('');
 
@@ -297,6 +314,7 @@ export default function App() {
       activeView={activeView}
       dashboard={dashboard}
       isAdmin={isAdmin}
+      isGeneralManager={isGeneralManager}
       loading={loading}
       refreshing={refreshingDashboard}
       message={message}

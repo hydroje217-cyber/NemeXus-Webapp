@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Eye, EyeOff, Loader2, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ShieldCheck, UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 function BrandLockup({ title, subtitle }) {
@@ -30,8 +30,6 @@ export default function LoginScreen({ message, onMessage }) {
   const [busy, setBusy] = useState(false);
   const [checkingAccess, setCheckingAccess] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
   const passwordInputRef = useRef(null);
   const isSignUp = authMode === 'signup';
 
@@ -54,13 +52,6 @@ export default function LoginScreen({ message, onMessage }) {
 
     if (lowerMessage.includes('email not confirmed')) {
       return 'This account still needs email confirmation before signing in.';
-    }
-
-    if (
-      lowerMessage.includes('request_password_reset') &&
-      (lowerMessage.includes('schema cache') || lowerMessage.includes('could not find the function'))
-    ) {
-      return 'Password reset requests are not installed in Supabase yet. Run supabase/password-reset-rpcs.sql in the Supabase SQL editor.';
     }
 
     return messageText || 'Sign in failed.';
@@ -133,40 +124,10 @@ export default function LoginScreen({ message, onMessage }) {
   }
 
   function handleForgotPasswordOpen() {
-    setResetEmail(email);
-    onMessage('');
-    setIsForgotPasswordOpen(true);
-  }
-
-  async function handleForgotPasswordSubmit(event) {
-    event.preventDefault();
-
-    const normalizedEmail = normalizeEmail(resetEmail);
-
-    if (!normalizedEmail) {
-      onMessage('Enter your email address first.');
-      return;
-    }
-
+    const normalizedEmail = normalizeEmail(email);
     setEmail(normalizedEmail);
-    setResetEmail(normalizedEmail);
-    setBusy(true);
     setCheckingAccess(false);
-    onMessage('');
-
-    const { error } = await supabase.rpc('request_password_reset', {
-      account_email: normalizedEmail,
-    });
-
-    if (error) {
-      onMessage(getFriendlyAuthMessage(error));
-      setBusy(false);
-      return;
-    }
-
-    setIsForgotPasswordOpen(false);
-    onMessage('Password reset requested. Wait for an admin to approve it and set your default role password.');
-    setBusy(false);
+    onMessage('Ask an admin to set a new password for your account.');
   }
 
   function handleModeChange(nextMode) {
@@ -180,7 +141,7 @@ export default function LoginScreen({ message, onMessage }) {
     <main className="login-shell">
       <section className="login-panel">
         <header className="login-hero">
-          <BrandLockup title="NemeXus" subtitle="Manager and supervisor access" />
+          <BrandLockup title="NemeXus" subtitle="Manager, supervisor, general manager, and admin access" />
           <div className="login-welcome">
             <h2>{isSignUp ? 'Create Account' : 'Welcome Back'}</h2>
             <p>{isSignUp ? 'Request dashboard access' : 'Live Supabase workspace'}</p>
@@ -265,59 +226,6 @@ export default function LoginScreen({ message, onMessage }) {
             {isSignUp ? 'Log in' : 'Sign up'}
           </button>
         </p>
-
-        {isForgotPasswordOpen ? (
-          <div className="modal-backdrop" role="presentation" onClick={() => setIsForgotPasswordOpen(false)}>
-            <section
-              className="confirm-dialog login-reset-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="forgot-password-title"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <button
-                className="dialog-close-button"
-                type="button"
-                aria-label="Close forgot password"
-                onClick={() => setIsForgotPasswordOpen(false)}
-              >
-                <X size={18} />
-              </button>
-              <h3 id="forgot-password-title">Request password reset</h3>
-              <form className="login-reset-form" onSubmit={handleForgotPasswordSubmit}>
-                <label>
-                  Email address
-                  <input
-                    type="text"
-                    inputMode="email"
-                    value={resetEmail}
-                    onChange={(event) => setResetEmail(event.target.value)}
-                    autoComplete="email"
-                    placeholder="e.g. name@gmail.com"
-                    required
-                  />
-                </label>
-                <p>
-                  An admin must approve the request. After approval, your password will be reset to your role name.
-                </p>
-                <div className="confirm-dialog-actions">
-                  <button
-                    type="button"
-                    className="secondary-action"
-                    onClick={() => setIsForgotPasswordOpen(false)}
-                    disabled={busy}
-                  >
-                    Cancel
-                  </button>
-                  <button type="submit" className="primary-action" disabled={busy}>
-                    {busy ? <Loader2 className="spin" size={16} /> : null}
-                    Request reset
-                  </button>
-                </div>
-              </form>
-            </section>
-          </div>
-        ) : null}
       </section>
     </main>
   );
