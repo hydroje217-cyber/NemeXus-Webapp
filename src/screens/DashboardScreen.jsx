@@ -596,16 +596,6 @@ export default function DashboardScreen({
                   <Bell size={16} />
                   {notificationCount ? <span className="notification-count">{notificationCount}</span> : null}
                 </button>
-                <button
-                  className="refresh-view-button compact"
-                  type="button"
-                  aria-label="Refresh current view"
-                  title="Refresh current view"
-                  disabled={loading || refreshing}
-                  onClick={onRefresh}
-                >
-                  <RefreshCw className={refreshing ? 'spin' : undefined} size={16} />
-                </button>
                 {isNotificationPanelOpen ? renderNotificationPanel() : null}
               </div>
             </div>

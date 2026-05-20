@@ -2217,3 +2217,11 @@
     width: 100%;
   }
 }
+
+@media (max-width: 980px) {
+  .refresh-view-button,
+  .refresh-view-button.compact,
+  .mobile-notification-wrap .refresh-view-button.compact {
+    display: none !important;
+  }
+}
