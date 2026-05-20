@@ -24,11 +24,19 @@ import {
 } from 'lucide-react';
 import AccountsScreen from './AccountsScreen';
 import ApprovalsScreen from './ApprovalsScreen';
+import LoginLogsScreen from './LoginLogsScreen';
 import OverviewScreen, { buildOperationAlerts } from './OverviewScreen';
 import ReadingsScreen from './ReadingsScreen';
 
 function titleize(value) {
-  return value ? value[0].toUpperCase() + value.slice(1) : 'Dashboard';
+  if (!value) {
+    return 'Dashboard';
+  }
+
+  return value
+    .split('-')
+    .map((word) => (word ? word[0].toUpperCase() + word.slice(1) : ''))
+    .join(' ');
 }
 
 function formatLastUpdated(value) {
@@ -91,6 +99,7 @@ function getTabs(isAdmin) {
   if (isAdmin) {
     tabs.push({ key: 'approvals', label: 'Approvals', icon: CheckCircle2 });
     tabs.push({ key: 'accounts', label: 'Accounts', icon: Users });
+    tabs.push({ key: 'login-logs', label: 'Login Logs', icon: History });
   }
 
   return tabs;
@@ -265,6 +274,10 @@ export default function DashboardScreen({
           onDeleteAccount={onDeleteAccount}
         />
       );
+    }
+
+    if (activeView === 'login-logs' && isAdmin) {
+      return <LoginLogsScreen logs={dashboard?.loginLogs ?? []} />;
     }
 
     return (

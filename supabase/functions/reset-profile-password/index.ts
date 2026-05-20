@@ -15,6 +15,10 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
+function normalizeRole(role?: string | null) {
+  return role === 'general manager' ? 'general_manager' : role;
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -61,7 +65,9 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: callerProfileError.message }, 500);
     }
 
-    if (callerProfile?.role !== 'admin' && callerProfile?.role !== 'general manager') {
+    const callerRole = normalizeRole(callerProfile?.role);
+
+    if (callerRole !== 'admin' && callerRole !== 'general_manager') {
       return jsonResponse({ error: 'Only admins and general managers can reset account passwords.' }, 403);
     }
 
@@ -75,7 +81,7 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: targetProfileError.message }, 500);
     }
 
-    if (callerProfile.role === 'general manager' && targetProfile?.role === 'admin') {
+    if (callerRole === 'general_manager' && normalizeRole(targetProfile?.role) === 'admin') {
       return jsonResponse({ error: 'General managers cannot reset admin account passwords.' }, 403);
     }
 

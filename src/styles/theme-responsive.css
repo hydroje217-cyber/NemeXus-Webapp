@@ -825,6 +825,21 @@
   border-left-color: #ff6b78;
 }
 
+.dark-mode .presence-badge.active {
+  background: rgba(70, 220, 150, 0.16);
+  color: #74e7b3;
+}
+
+.dark-mode .presence-badge.idle {
+  background: rgba(245, 196, 81, 0.15);
+  color: #f7d36b;
+}
+
+.dark-mode .presence-badge.offline {
+  background: rgba(183, 203, 210, 0.12);
+  color: #b7cbd2;
+}
+
 .dark-mode .metric-card,
 .dark-mode .operation-alerts-panel,
 .dark-mode .live-summary-panel,

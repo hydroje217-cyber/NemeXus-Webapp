@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Eye, EyeOff, KeyRound, Trash2, X } from 'lucide-react';
+import { formatRoleLabel, GENERAL_MANAGER_ROLE, normalizeRole } from '../services/dashboard';
 
-const ROLE_OPTIONS = ['operator', 'supervisor', 'manager', 'general manager', 'admin'];
+const ROLE_OPTIONS = ['operator', 'supervisor', 'manager', GENERAL_MANAGER_ROLE, 'admin'];
+const ACTIVE_WINDOW_MS = 2 * 60 * 1000;
 
 function formatDateTime(value) {
   if (!value) {
@@ -17,6 +19,32 @@ function formatDateTime(value) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
+}
+
+function getPresenceStatus(value) {
+  if (!value) {
+    return { label: 'Never seen', className: 'presence-badge offline' };
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return { label: 'Unknown', className: 'presence-badge offline' };
+  }
+
+  const elapsedMs = Date.now() - date.getTime();
+
+  if (elapsedMs <= ACTIVE_WINDOW_MS) {
+    return { label: 'Active now', className: 'presence-badge active' };
+  }
+
+  const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60000));
+
+  if (elapsedMinutes < 60) {
+    return { label: `Seen ${elapsedMinutes}m ago`, className: 'presence-badge idle' };
+  }
+
+  return { label: `Seen ${Math.round(elapsedMinutes / 60)}h ago`, className: 'presence-badge offline' };
 }
 
 export default function AccountsScreen({
@@ -86,6 +114,7 @@ export default function AccountsScreen({
                 <th>Name</th>
                 <th>Email</th>
                 <th>Role</th>
+                <th>Status</th>
                 <th>Approved</th>
                 <th>Created</th>
                 <th>Actions</th>
@@ -95,6 +124,8 @@ export default function AccountsScreen({
               {accounts.map((account) => {
                 const isCurrentAccount = account.id === currentProfileId;
                 const isProtectedAdmin = isGeneralManager && account.role === 'admin';
+                const accountRole = normalizeRole(account.role) || 'operator';
+                const presenceStatus = getPresenceStatus(account.last_seen_at);
 
                 return (
                   <tr key={account.id}>
@@ -102,23 +133,26 @@ export default function AccountsScreen({
                     <td>{account.email || '-'}</td>
                     <td>
                       <select
-                        value={account.role || 'operator'}
+                        value={accountRole}
                         disabled={workingId === account.id || isProtectedAdmin}
                         title={isProtectedAdmin ? 'General managers cannot change admin roles.' : undefined}
                         onChange={(event) =>
                           setPendingRoleChange({
                             account,
-                            currentRole: account.role || 'operator',
+                            currentRole: accountRole,
                             nextRole: event.target.value,
                           })
                         }
                       >
                         {ROLE_OPTIONS.map((role) => (
                           <option key={role} value={role}>
-                            {role}
+                            {formatRoleLabel(role)}
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td>
+                      <span className={presenceStatus.className}>{presenceStatus.label}</span>
                     </td>
                     <td>{account.is_approved ? 'Yes' : 'No'}</td>
                     <td>{formatDateTime(account.created_at)}</td>
@@ -221,7 +255,7 @@ export default function AccountsScreen({
             <h3 id="role-change-title">Change account role?</h3>
             <p>
               Change {pendingRoleChange.account.full_name || pendingRoleChange.account.email || 'this account'} from{' '}
-              {pendingRoleChange.currentRole} to {pendingRoleChange.nextRole}.
+              {formatRoleLabel(pendingRoleChange.currentRole)} to {formatRoleLabel(pendingRoleChange.nextRole)}.
             </p>
             <div className="confirm-dialog-actions">
               <button type="button" className="secondary-action" onClick={() => setPendingRoleChange(null)}>

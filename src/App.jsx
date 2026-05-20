@@ -9,13 +9,18 @@ import {
   approveOperatorProfile,
   assignProfileRole,
   deleteProfileAccount,
+  formatRoleLabel,
   getDashboardSnapshot,
   getProfile,
+  isGeneralManagerRole,
   isAdminRole,
   isOfficeRole,
   resetProfilePassword,
+  updateAccountPresence,
   updateProfileEmail,
 } from './services/dashboard';
+
+const PRESENCE_HEARTBEAT_MS = 45 * 1000;
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -36,7 +41,7 @@ export default function App() {
   });
 
   const isAdmin = isAdminRole(profile?.role);
-  const isGeneralManager = profile?.role === 'general manager';
+  const isGeneralManager = isGeneralManagerRole(profile?.role);
   const canUseDashboard = isOfficeRole(profile?.role);
 
   async function loadDashboard({ silent = false } = {}) {
@@ -124,7 +129,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!isAdmin && (activeView === 'approvals' || activeView === 'accounts')) {
+    if (!isAdmin && (activeView === 'approvals' || activeView === 'accounts' || activeView === 'login-logs')) {
       setActiveView('readings');
     }
   }, [activeView, isAdmin]);
@@ -156,6 +161,39 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, [canUseDashboard]);
+
+  useEffect(() => {
+    if (!supabaseReady || !supabase || !session?.user) {
+      return undefined;
+    }
+
+    let presenceTimer = 0;
+
+    async function sendPresence() {
+      if (document.visibilityState === 'hidden') {
+        return;
+      }
+
+      try {
+        await updateAccountPresence({
+          userAgent: typeof window === 'undefined' ? null : window.navigator.userAgent,
+        });
+      } catch (error) {
+        console.warn('Failed to update account presence.', error);
+      }
+    }
+
+    sendPresence();
+    presenceTimer = window.setInterval(sendPresence, PRESENCE_HEARTBEAT_MS);
+    window.addEventListener('focus', sendPresence);
+    document.addEventListener('visibilitychange', sendPresence);
+
+    return () => {
+      window.clearInterval(presenceTimer);
+      window.removeEventListener('focus', sendPresence);
+      document.removeEventListener('visibilitychange', sendPresence);
+    };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -245,7 +283,7 @@ export default function App() {
     try {
       await assignProfileRole(account.id, nextRole);
       await loadDashboard({ silent: true });
-      setMessage(`${account.full_name || account.email || 'Account'} updated to ${nextRole}.`);
+      setMessage(`${account.full_name || account.email || 'Account'} updated to ${formatRoleLabel(nextRole)}.`);
     } catch (error) {
       setMessage(error.message || 'Failed to update role.');
     } finally {

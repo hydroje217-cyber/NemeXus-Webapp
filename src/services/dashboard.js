@@ -14,8 +14,9 @@ import {
 } from '../utils/production';
 import { enrichReadingsWithInferredShiftOwnership } from '../utils/shifts';
 
-export const ADMIN_ROLES = new Set(['admin', 'general manager']);
-const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin', 'general manager']);
+export const GENERAL_MANAGER_ROLE = 'general_manager';
+export const ADMIN_ROLES = new Set(['admin', GENERAL_MANAGER_ROLE]);
+const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin', GENERAL_MANAGER_ROLE]);
 
 const DAILY_SUMMARY_SELECT =
   'id, site_id, summary_date, source, source_file, production_m3, power_kwh, chlorine_kg, avg_flowrate_m3hr, avg_pressure_psi, avg_rc_ppm, avg_turbidity_ntu, avg_ph, avg_tds_ppm, peroxide_liters, operating_hours, scheduled_downtime_hours, unscheduled_downtime_hours, avg_upstream_pressure_psi, avg_downstream_pressure_psi, avg_vfd_frequency_hz, avg_voltage_l1_v, avg_voltage_l2_v, avg_voltage_l3_v, avg_amperage_a, created_at, updated_at, site:sites!inner(id, name, type)';
@@ -27,6 +28,7 @@ const CHLORINATION_READING_FALLBACK_SELECT =
   'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, pressure_psi, rc_ppm, turbidity_ntu, ph, tds_ppm, tank_level_liters, flowrate_m3hr, totalizer, chlorination_power_kwh, chlorine_consumed, peroxide_consumption, site:sites(id, name, type)';
 const DEEPWELL_READING_FALLBACK_SELECT =
   'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, upstream_pressure_psi, downstream_pressure_psi, flowrate_m3hr, vfd_frequency_hz, voltage_l1_v, voltage_l2_v, voltage_l3_v, amperage_a, tds_ppm, power_kwh_shift, site:sites(id, name, type)';
+const PROFILE_SELECT = 'id, email, full_name, role, is_active, is_approved, approved_at, created_at, last_seen_at';
 
 function startOfTodayIso() {
   const now = new Date();
@@ -151,18 +153,34 @@ function throwIfError(result, message) {
   }
 }
 
+export function normalizeRole(role) {
+  return role === 'general manager' ? GENERAL_MANAGER_ROLE : role;
+}
+
+export function formatRoleLabel(role) {
+  return normalizeRole(role)?.replace('_', ' ') || '';
+}
+
+export function normalizeProfile(row) {
+  return row ? { ...row, role: normalizeRole(row.role) } : row;
+}
+
 export function isOfficeRole(role) {
-  return OFFICE_ROLES.has(role);
+  return OFFICE_ROLES.has(normalizeRole(role));
 }
 
 export function isAdminRole(role) {
-  return ADMIN_ROLES.has(role);
+  return ADMIN_ROLES.has(normalizeRole(role));
+}
+
+export function isGeneralManagerRole(role) {
+  return normalizeRole(role) === GENERAL_MANAGER_ROLE;
 }
 
 export async function getProfile(userId) {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, email, full_name, role, is_active, is_approved, approved_at')
+    .select(PROFILE_SELECT)
     .eq('id', userId)
     .maybeSingle();
 
@@ -170,7 +188,7 @@ export async function getProfile(userId) {
     throw new Error(error.message || 'Failed to load your profile.');
   }
 
-  return data;
+  return normalizeProfile(data);
 }
 
 export async function updateProfileEmail(profileId, email) {
@@ -197,12 +215,13 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     recentSummaries,
     recentRawReadings,
     profiles,
+    loginLogs,
     operators,
     monthlySummaries,
   ] = await Promise.all([
     supabase
       .from('profiles')
-      .select('id, email, full_name, role, is_active, is_approved, created_at')
+      .select('id, email, full_name, role, is_active, is_approved, created_at, last_seen_at')
       .eq('role', 'operator')
       .eq('is_active', true)
       .eq('is_approved', false)
@@ -227,12 +246,16 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     loadRecentRawReadings({ fromIso: checkpointFromIso, limit: 250 }),
     supabase
       .from('profiles')
-      .select('id, email, full_name, role, is_active, is_approved, approved_at, created_at')
-      .order('created_at', { ascending: false })
-      .limit(30),
+      .select(PROFILE_SELECT)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('account_login_logs')
+      .select('id, profile_id, email, full_name, role, logged_in_at, user_agent')
+      .order('logged_in_at', { ascending: false })
+      .limit(100),
     supabase
       .from('profiles')
-      .select('id, email, full_name, role, is_active, is_approved, approved_at, created_at')
+      .select(PROFILE_SELECT)
       .eq('role', 'operator')
       .order('full_name', { ascending: true, nullsFirst: false })
       .order('email', { ascending: true, nullsFirst: false }),
@@ -250,6 +273,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
   throwIfError(todaySummaries, 'Failed to count daily site summaries.');
   throwIfError(recentSummaries, 'Failed to load recent daily site summaries.');
   throwIfError(profiles, 'Failed to load accounts.');
+  throwIfError(loginLogs, 'Failed to load login logs.');
   throwIfError(operators, 'Failed to load operators.');
   throwIfError(monthlySummaries, 'Failed to load monthly daily site summaries.');
 
@@ -272,10 +296,11 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       totalSites: sitesCount.count ?? 0,
       todayReadings: todaySummaries.count ?? 0,
     },
-    pendingApprovals: pendingApprovals.data ?? [],
+    pendingApprovals: (pendingApprovals.data ?? []).map(normalizeProfile),
     recentReadings,
-    profiles: profiles.data ?? [],
-    operators: operators.data ?? [],
+    profiles: (profiles.data ?? []).map(normalizeProfile),
+    loginLogs: (loginLogs.data ?? []).map(normalizeProfile),
+    operators: (operators.data ?? []).map(normalizeProfile),
     monthlyProduction: buildMonthlyProduction(monthlyChlorination),
     monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination),
     dailyProduction: buildDailyProduction(monthlyChlorination),
@@ -296,6 +321,26 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       deepwellReadings: monthlyDeepwell,
     }),
   };
+}
+
+export async function recordAccountLogin({ userAgent } = {}) {
+  const { error } = await supabase.rpc('record_account_login', {
+    login_user_agent: userAgent || null,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to record login.');
+  }
+}
+
+export async function updateAccountPresence({ userAgent } = {}) {
+  const { error } = await supabase.rpc('update_account_presence', {
+    presence_user_agent: userAgent || null,
+  });
+
+  if (error) {
+    throw new Error(error.message || 'Failed to update active status.');
+  }
 }
 
 export async function approveOperatorProfile(profileId) {

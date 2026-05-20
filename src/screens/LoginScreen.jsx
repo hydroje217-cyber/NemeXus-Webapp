@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Eye, EyeOff, Loader2, ShieldCheck, UserPlus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { recordAccountLogin, updateAccountPresence } from '../services/dashboard';
 
 function BrandLockup({ title, subtitle }) {
   return (
@@ -115,8 +116,17 @@ export default function LoginScreen({ message, onMessage }) {
       setCheckingAccess(false);
       setBusy(false);
       return;
-    } else if (typeof window !== 'undefined') {
+    }
+
+    if (typeof window !== 'undefined') {
       window.localStorage.setItem('nemexus-last-email', normalizedEmail);
+
+      try {
+        await recordAccountLogin({ userAgent: window.navigator.userAgent });
+        await updateAccountPresence({ userAgent: window.navigator.userAgent });
+      } catch (error) {
+        console.warn('Failed to record login activity.', error);
+      }
     }
 
     setCheckingAccess(true);

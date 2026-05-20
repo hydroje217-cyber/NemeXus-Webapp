@@ -1755,6 +1755,37 @@ td {
   white-space: nowrap;
 }
 
+.inline-table-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.presence-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.presence-badge.active {
+  background: #dff8ed;
+  color: #1f7a51;
+}
+
+.presence-badge.idle {
+  background: #fff4d6;
+  color: #8a6200;
+}
+
+.presence-badge.offline {
+  background: #edf2f5;
+  color: #60727c;
+}
+
 th {
   color: #60727c;
   font-size: 0.78rem;
