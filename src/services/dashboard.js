@@ -29,6 +29,10 @@ const CHLORINATION_READING_FALLBACK_SELECT =
 const DEEPWELL_READING_FALLBACK_SELECT =
   'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, upstream_pressure_psi, downstream_pressure_psi, flowrate_m3hr, vfd_frequency_hz, voltage_l1_v, voltage_l2_v, voltage_l3_v, amperage_a, tds_ppm, power_kwh_shift, site:sites(id, name, type)';
 const PROFILE_SELECT = 'id, email, full_name, role, is_active, is_approved, approved_at, created_at, last_seen_at';
+const LOGIN_LOG_SELECT =
+  'id, user_id, email, role, browser, device, user_agent, created_at, profile:profiles(full_name, email)';
+const LOGIN_LOG_FALLBACK_SELECT = 'id, user_id, email, role, browser, device, user_agent, created_at';
+const LEGACY_LOGIN_LOG_SELECT = 'id, profile_id, email, full_name, role, logged_in_at, user_agent';
 
 function startOfTodayIso() {
   const now = new Date();
@@ -153,6 +157,120 @@ function throwIfError(result, message) {
   }
 }
 
+function isMissingColumnError(error) {
+  return (
+    error?.code === '42703' ||
+    error?.code === 'PGRST204' ||
+    /column .* does not exist/i.test(error?.message || '') ||
+    /could not find .* column/i.test(error?.message || '')
+  );
+}
+
+function getBrowserFromUserAgent(userAgent = '') {
+  if (!userAgent) {
+    return '';
+  }
+
+  if (userAgent.includes('Edg/')) {
+    return 'Microsoft Edge';
+  }
+
+  if (userAgent.includes('OPR/') || userAgent.includes('Opera/')) {
+    return 'Opera';
+  }
+
+  if (userAgent.includes('Firefox/')) {
+    return 'Firefox';
+  }
+
+  if (userAgent.includes('Chrome/') || userAgent.includes('CriOS/')) {
+    return 'Chrome';
+  }
+
+  if (userAgent.includes('Safari/')) {
+    return 'Safari';
+  }
+
+  return 'Browser';
+}
+
+function getDeviceFromUserAgent(userAgent = '') {
+  if (!userAgent) {
+    return '';
+  }
+
+  if (/iPad/i.test(userAgent)) {
+    return 'iPad';
+  }
+
+  if (/iPhone/i.test(userAgent)) {
+    return 'iPhone';
+  }
+
+  if (/Android/i.test(userAgent)) {
+    return /Mobile/i.test(userAgent) ? 'Android phone' : 'Android tablet';
+  }
+
+  if (/Windows/i.test(userAgent)) {
+    return 'Windows desktop';
+  }
+
+  if (/Macintosh|Mac OS/i.test(userAgent)) {
+    return 'Mac desktop';
+  }
+
+  if (/Linux/i.test(userAgent)) {
+    return 'Linux desktop';
+  }
+
+  return 'Device';
+}
+
+function normalizeLoginLog(row = {}) {
+  const userAgent = row.user_agent || '';
+
+  return {
+    ...row,
+    email: row.email || row.profile?.email || '',
+    full_name: row.full_name || row.profile?.full_name || '',
+    browser: row.browser || getBrowserFromUserAgent(userAgent),
+    device: row.device || getDeviceFromUserAgent(userAgent),
+    logged_in_at: row.logged_in_at || row.created_at,
+  };
+}
+
+async function fetchLoginLogs() {
+  const fullResult = await supabase
+    .from('account_login_logs')
+    .select(LOGIN_LOG_SELECT)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (!fullResult.error) {
+    return fullResult;
+  }
+
+  if (!isMissingColumnError(fullResult.error)) {
+    return fullResult;
+  }
+
+  const fallbackResult = await supabase
+    .from('account_login_logs')
+    .select(LOGIN_LOG_FALLBACK_SELECT)
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  if (!fallbackResult.error || !isMissingColumnError(fallbackResult.error)) {
+    return fallbackResult;
+  }
+
+  return supabase
+    .from('account_login_logs')
+    .select(LEGACY_LOGIN_LOG_SELECT)
+    .order('logged_in_at', { ascending: false })
+    .limit(100);
+}
+
 export function normalizeRole(role) {
   return role === 'general manager' ? GENERAL_MANAGER_ROLE : role;
 }
@@ -248,11 +366,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .from('profiles')
       .select(PROFILE_SELECT)
       .order('created_at', { ascending: false }),
-    supabase
-      .from('account_login_logs')
-      .select('id, profile_id, email, full_name, role, logged_in_at, user_agent')
-      .order('logged_in_at', { ascending: false })
-      .limit(100),
+    fetchLoginLogs(),
     supabase
       .from('profiles')
       .select(PROFILE_SELECT)
@@ -299,7 +413,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     pendingApprovals: (pendingApprovals.data ?? []).map(normalizeProfile),
     recentReadings,
     profiles: (profiles.data ?? []).map(normalizeProfile),
-    loginLogs: (loginLogs.data ?? []).map(normalizeProfile),
+    loginLogs: (loginLogs.data ?? []).map(normalizeLoginLog),
     operators: (operators.data ?? []).map(normalizeProfile),
     monthlyProduction: buildMonthlyProduction(monthlyChlorination),
     monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination),
@@ -324,12 +438,64 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
 }
 
 export async function recordAccountLogin({ userAgent } = {}) {
-  const { error } = await supabase.rpc('record_account_login', {
+  const { error: rpcError } = await supabase.rpc('record_account_login', {
     login_user_agent: userAgent || null,
   });
 
-  if (error) {
-    throw new Error(error.message || 'Failed to record login.');
+  if (!rpcError) {
+    return;
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+
+  if (userError || !userData?.user) {
+    throw new Error(userError?.message || rpcError.message || 'Failed to record login.');
+  }
+
+  const profile = await getProfile(userData.user.id);
+  const normalizedUserAgent = userAgent || '';
+  const loginLog = {
+    user_id: userData.user.id,
+    email: profile?.email || userData.user.email,
+    role: profile?.role || 'operator',
+    browser: getBrowserFromUserAgent(normalizedUserAgent),
+    device: getDeviceFromUserAgent(normalizedUserAgent),
+    user_agent: normalizedUserAgent,
+  };
+  const attempts = [
+    loginLog,
+    (({ browser: _browser, device: _device, ...rest }) => rest)(loginLog),
+    {
+      email: loginLog.email,
+      role: loginLog.role,
+      user_agent: loginLog.user_agent,
+    },
+    {
+      profile_id: loginLog.user_id,
+      email: loginLog.email,
+      full_name: profile?.full_name || null,
+      role: loginLog.role,
+      user_agent: loginLog.user_agent,
+    },
+  ];
+  let lastError = rpcError;
+
+  for (const payload of attempts) {
+    const { error } = await supabase.from('account_login_logs').insert(payload);
+
+    if (!error) {
+      return;
+    }
+
+    lastError = error;
+
+    if (!isMissingColumnError(error)) {
+      break;
+    }
+  }
+
+  if (lastError) {
+    throw new Error(lastError.message || 'Failed to record login.');
   }
 }
 

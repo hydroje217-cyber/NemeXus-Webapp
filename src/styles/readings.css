@@ -242,14 +242,97 @@
   }
 }
 
-.readings-message {
-  margin: 0;
-  background: #e9fff6;
-  color: #087467;
-  border: 1px solid #cbf5e8;
+.readings-status-log {
+  border: 1px solid #d7e7eb;
   border-radius: 8px;
-  padding: 10px 18px;
-  font-weight: 800;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(24, 33, 45, 0.06);
+  overflow: hidden;
+}
+
+.readings-status-log header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #edf3f5;
+}
+
+.readings-status-log header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #102236;
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.readings-status-log header button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #c5ece4;
+  background: #eefaf6;
+  color: #102236;
+  font-size: 0.78rem;
+}
+
+.readings-status-log-list {
+  display: grid;
+  gap: 0;
+}
+
+.readings-status-entry {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 4px solid #7aa4b0;
+  color: #263947;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.readings-status-entry + .readings-status-entry {
+  border-top: 1px solid #edf3f5;
+}
+
+.readings-status-entry time {
+  color: #60727c;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.readings-status-entry span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.readings-status-entry.loading {
+  border-left-color: #0f7c70;
+  background: #f1fffb;
+}
+
+.readings-status-entry.success {
+  border-left-color: #16a34a;
+  background: #f2fff7;
+}
+
+.readings-status-entry.warning {
+  border-left-color: #d79c16;
+  background: #fff9e8;
+}
+
+.readings-status-entry.error {
+  border-left-color: #dc2626;
+  background: #fff5f5;
+}
+
+.readings-status-entry.info {
+  border-left-color: #2086a3;
+  background: #f2fbff;
 }
 
 .export-button {

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, Eye, FileText, Filter, Grid2X2, List, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, CalendarDays, ChevronDown, ChevronUp, Eye, FileText, Filter, Grid2X2, List, Search, X } from 'lucide-react';
 import { listReadings } from '../services/readings';
 import { aggregateDailyRows } from '../utils/production';
 
@@ -65,6 +65,14 @@ function formatTimeSlot(value) {
   return parsed.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
+  });
+}
+
+function formatLogTime(value) {
+  return value.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
@@ -376,8 +384,20 @@ export default function ReadingsScreen() {
   const [exporting, setExporting] = useState(false);
   const [exportFormat, setExportFormat] = useState('csv');
   const [exportOpen, setExportOpen] = useState(false);
-  const [message, setMessage] = useState('');
+  const [statusLogs, setStatusLogs] = useState([]);
   const loadRequestRef = useRef(0);
+
+  const appendStatusLog = useCallback((level, text) => {
+    setStatusLogs((currentLogs) => [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        level,
+        text,
+        time: formatLogTime(new Date()),
+      },
+      ...currentLogs,
+    ].slice(0, 6));
+  }, []);
 
   const chlorinationColumns = useMemo(
     () => [
@@ -525,19 +545,21 @@ export default function ReadingsScreen() {
     const requestId = loadRequestRef.current + 1;
     loadRequestRef.current = requestId;
     setLoading(true);
-    setMessage('');
 
     const effectiveTableMode = nextFilters.tableMode ?? tableMode;
     const effectiveFromDate = nextFilters.fromDate ?? fromDate;
     const effectiveToDate = nextFilters.toDate ?? toDate;
     const effectiveLimit = nextFilters.limit ?? limit;
     const safeLimit = Math.min(200, Math.max(1, Number(effectiveLimit) || 8));
+    const effectiveSiteLabel = SITE_TYPE_OPTIONS.find((option) => option.value === effectiveTableMode)?.label || 'All sites';
+
+    appendStatusLog('loading', `Loading ${effectiveSiteLabel.toLowerCase()} readings from ${effectiveFromDate || 'the first record'} to ${effectiveToDate || 'today'}.`);
 
     if (effectiveFromDate && effectiveToDate && effectiveFromDate > effectiveToDate) {
       if (loadRequestRef.current === requestId) {
         setItems([]);
         setDailyAverageRows([]);
-        setMessage('The from date must be on or before the to date.');
+        appendStatusLog('warning', 'The from date must be on or before the to date.');
         setLoading(false);
       }
       return;
@@ -577,7 +599,8 @@ export default function ReadingsScreen() {
       setItems(nextItems);
       setDailyAverageRows(averageRows);
       setCurrentPage(1);
-      setMessage(
+      appendStatusLog(
+        'success',
         fields.length
           ? `Showing ${nextItems.length} ${effectiveTableMode.toLowerCase()} record(s) and ${averageRows.length} daily average row(s).`
           : `Showing ${nextItems.length} reading record(s).`
@@ -586,7 +609,7 @@ export default function ReadingsScreen() {
       if (loadRequestRef.current === requestId) {
         setItems([]);
         setDailyAverageRows([]);
-        setMessage(error.message || 'Failed to load readings.');
+        appendStatusLog('error', error.message || 'Failed to load readings.');
       }
     } finally {
       if (loadRequestRef.current === requestId) {
@@ -605,21 +628,25 @@ export default function ReadingsScreen() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, tableMode, statusFilter]);
+    if (items.length || searchTerm || statusFilter !== 'all') {
+      appendStatusLog('info', `Filters active: ${filteredItems.length} of ${items.length} record(s) visible.`);
+    }
+  }, [appendStatusLog, filteredItems.length, items.length, searchTerm, tableMode, statusFilter]);
 
   async function handleExport(nextFormat = exportFormat) {
     if (!items.length && !dailyAverageRows.length) {
-      setMessage(`Load some readings first before exporting to ${nextFormat.toUpperCase()}.`);
+      appendStatusLog('warning', `Load some readings first before exporting to ${nextFormat.toUpperCase()}.`);
       return;
     }
 
     if (!filteredItems.length) {
-      setMessage(`No records match the current filters for ${nextFormat.toUpperCase()} export.`);
+      appendStatusLog('warning', `No records match the current filters for ${nextFormat.toUpperCase()} export.`);
       return;
     }
 
     setExporting(true);
     setExportOpen(false);
+    appendStatusLog('loading', `Exporting ${filteredItems.length} reading record(s) as ${nextFormat.toUpperCase()}.`);
 
     try {
       const fileBase = `nemexus-${tableMode === ALL_SITES ? 'all-sites' : tableMode.toLowerCase()}-readings-${new Date().toISOString().slice(0, 10)}`;
@@ -657,9 +684,9 @@ export default function ReadingsScreen() {
         downloadBlob(`\uFEFF${sections.join('\n\n')}`, `${fileBase}.csv`, 'text/csv;charset=utf-8;');
       }
 
-      setMessage(`Exported ${tableMode === ALL_SITES ? 'all sites' : tableMode.toLowerCase()} readings as ${nextFormat.toUpperCase()}.`);
+      appendStatusLog('success', `Exported ${tableMode === ALL_SITES ? 'all sites' : tableMode.toLowerCase()} readings as ${nextFormat.toUpperCase()}.`);
     } catch (error) {
-      setMessage(error.message || 'Failed to export readings.');
+      appendStatusLog('error', error.message || 'Failed to export readings.');
     } finally {
       setExporting(false);
     }
@@ -752,7 +779,27 @@ export default function ReadingsScreen() {
         </div>
       </section>
 
-      {message ? <p className="readings-message">{message}</p> : null}
+      {statusLogs.length ? (
+        <section className="readings-status-log" aria-label="Active status logs">
+          <header>
+            <span>
+              <Activity size={16} />
+              Active status logs
+            </span>
+            <button type="button" onClick={() => setStatusLogs([])}>
+              Clear
+            </button>
+          </header>
+          <div className="readings-status-log-list">
+            {statusLogs.map((log) => (
+              <p className={`readings-status-entry ${log.level}`} key={log.id}>
+                <time>{log.time}</time>
+                <span>{log.text}</span>
+              </p>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="panel">
         <div className="panel-heading">
@@ -778,7 +825,10 @@ export default function ReadingsScreen() {
                         type="button"
                         className="table-icon-button"
                         aria-label="View reading details"
-                        onClick={() => setSelectedReading(row)}
+                        onClick={() => {
+                          setSelectedReading(row);
+                          appendStatusLog('info', `Opened details for ${row.sites?.name || 'reading'} recorded ${formatShortDateTime(row.reading_datetime)}.`);
+                        }}
                       >
                         <Eye size={16} />
                       </button>

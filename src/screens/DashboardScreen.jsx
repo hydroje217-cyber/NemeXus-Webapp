@@ -29,6 +29,10 @@ import OverviewScreen, { buildOperationAlerts } from './OverviewScreen';
 import ReadingsScreen from './ReadingsScreen';
 
 function titleize(value) {
+  if (value === 'login-logs') {
+    return 'Logs';
+  }
+
   if (!value) {
     return 'Dashboard';
   }
@@ -99,7 +103,7 @@ function getTabs(isAdmin) {
   if (isAdmin) {
     tabs.push({ key: 'approvals', label: 'Approvals', icon: CheckCircle2 });
     tabs.push({ key: 'accounts', label: 'Accounts', icon: Users });
-    tabs.push({ key: 'login-logs', label: 'Login Logs', icon: History });
+    tabs.push({ key: 'login-logs', label: 'Logs', icon: History });
   }
 
   return tabs;
@@ -277,7 +281,7 @@ export default function DashboardScreen({
     }
 
     if (activeView === 'login-logs' && isAdmin) {
-      return <LoginLogsScreen logs={dashboard?.loginLogs ?? []} />;
+      return <LoginLogsScreen accounts={dashboard?.profiles ?? []} logs={dashboard?.loginLogs ?? []} />;
     }
 
     return (

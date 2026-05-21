@@ -1,5 +1,12 @@
-import { Clock3 } from 'lucide-react';
-import { formatRoleLabel } from '../services/dashboard';
+import { useMemo, useState } from 'react';
+import { Clock3, History, Radio } from 'lucide-react';
+import { formatRoleLabel, normalizeRole } from '../services/dashboard';
+
+const ACTIVE_WINDOW_MS = 2 * 60 * 1000;
+const LOG_FILTERS = [
+  { key: 'login', label: 'Login Logs', icon: History },
+  { key: 'active', label: 'Active Status Logs', icon: Radio },
+];
 
 function formatDateTime(value) {
   if (!value) {
@@ -17,7 +24,7 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-function formatDevice(value) {
+function formatUserAgent(value) {
   if (!value) {
     return '-';
   }
@@ -41,18 +48,106 @@ function formatDevice(value) {
   return value.length > 72 ? `${value.slice(0, 72)}...` : value;
 }
 
-export default function LoginLogsScreen({ logs }) {
+function getPresenceStatus(value) {
+  if (!value) {
+    return { label: 'Never seen', className: 'presence-badge offline' };
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return { label: 'Unknown', className: 'presence-badge offline' };
+  }
+
+  const elapsedMs = Date.now() - date.getTime();
+
+  if (elapsedMs <= ACTIVE_WINDOW_MS) {
+    return { label: 'Active now', className: 'presence-badge active' };
+  }
+
+  const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60000));
+
+  if (elapsedMinutes < 60) {
+    return { label: `Seen ${elapsedMinutes}m ago`, className: 'presence-badge idle' };
+  }
+
+  return { label: `Seen ${Math.round(elapsedMinutes / 60)}h ago`, className: 'presence-badge offline' };
+}
+
+function sortByLastSeen(accounts) {
+  return [...accounts].sort((first, second) => {
+    const secondTime = new Date(second.last_seen_at || second.created_at || 0).getTime();
+    const firstTime = new Date(first.last_seen_at || first.created_at || 0).getTime();
+
+    return secondTime - firstTime;
+  });
+}
+
+export default function LoginLogsScreen({ accounts = [], logs = [] }) {
+  const [logFilter, setLogFilter] = useState('login');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const activeStatusLogs = useMemo(() => sortByLastSeen(accounts), [accounts]);
+  const roleOptions = useMemo(() => {
+    const roles = new Set([
+      ...accounts.map((account) => normalizeRole(account.role)).filter(Boolean),
+      ...logs.map((log) => normalizeRole(log.role)).filter(Boolean),
+    ]);
+
+    return Array.from(roles).sort();
+  }, [accounts, logs]);
+  const filteredLoginLogs = useMemo(
+    () => (roleFilter === 'all' ? logs : logs.filter((log) => normalizeRole(log.role) === roleFilter)),
+    [logs, roleFilter]
+  );
+  const filteredActiveStatusLogs = useMemo(
+    () =>
+      roleFilter === 'all'
+        ? activeStatusLogs
+        : activeStatusLogs.filter((account) => normalizeRole(account.role) === roleFilter),
+    [activeStatusLogs, roleFilter]
+  );
+  const isLoginFilter = logFilter === 'login';
+  const visibleCount = isLoginFilter ? filteredLoginLogs.length : filteredActiveStatusLogs.length;
+  const activeFilterLabel = isLoginFilter ? 'recent login(s)' : 'active status record(s)';
+
   return (
     <section className="panel">
       <div className="panel-heading">
-        <h3>Login Logs</h3>
-        <span>{logs.length} recent login(s)</span>
+        <div className="account-heading-main">
+          <h3>Logs</h3>
+          <div className="account-filter-row" aria-label="Filter logs">
+            {LOG_FILTERS.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                className={logFilter === key ? 'active' : ''}
+                aria-pressed={logFilter === key}
+                onClick={() => setLogFilter(key)}
+              >
+                <Icon size={15} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <label className="log-role-filter">
+            <span>Role</span>
+            <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
+              <option value="all">All roles</option>
+              {roleOptions.map((role) => (
+                <option value={role} key={role}>
+                  {formatRoleLabel(role)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <span>{visibleCount} {activeFilterLabel}</span>
       </div>
 
-      {!logs.length ? (
+      {isLoginFilter && !filteredLoginLogs.length ? (
         <div className="empty-state">No login logs found.</div>
-      ) : (
-        <div className="table-wrap">
+      ) : isLoginFilter ? (
+        <div className="table-wrap logs-table-wrap login-table-wrap">
           <table>
             <thead>
               <tr>
@@ -61,10 +156,11 @@ export default function LoginLogsScreen({ logs }) {
                 <th>Role</th>
                 <th>Logged in</th>
                 <th>Browser</th>
+                <th>Device</th>
               </tr>
             </thead>
             <tbody>
-              {logs.map((log) => (
+              {filteredLoginLogs.map((log) => (
                 <tr key={log.id}>
                   <td>{log.full_name || '-'}</td>
                   <td>{log.email || '-'}</td>
@@ -75,9 +171,50 @@ export default function LoginLogsScreen({ logs }) {
                       {formatDateTime(log.logged_in_at)}
                     </span>
                   </td>
-                  <td>{formatDevice(log.user_agent)}</td>
+                  <td>{log.browser || formatUserAgent(log.user_agent)}</td>
+                  <td>{log.device || '-'}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      ) : !filteredActiveStatusLogs.length ? (
+        <div className="empty-state">No active status logs found.</div>
+      ) : (
+        <div className="table-wrap logs-table-wrap active-status-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Active status</th>
+                <th>Last seen</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredActiveStatusLogs.map((account) => {
+                const presenceStatus = getPresenceStatus(account.last_seen_at);
+
+                return (
+                  <tr key={account.id}>
+                    <td>{account.full_name || '-'}</td>
+                    <td>{account.email || '-'}</td>
+                    <td>{formatRoleLabel(account.role) || '-'}</td>
+                    <td>
+                      <span className={presenceStatus.className}>{presenceStatus.label}</span>
+                    </td>
+                    <td>
+                      <span className="inline-table-icon">
+                        <Clock3 size={14} />
+                        {formatDateTime(account.last_seen_at)}
+                      </span>
+                    </td>
+                    <td>{formatDateTime(account.created_at)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -21,6 +21,7 @@ import {
 } from './services/dashboard';
 
 const PRESENCE_HEARTBEAT_MS = 45 * 1000;
+const DASHBOARD_REFRESH_MS = 30 * 1000;
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -155,9 +156,13 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, scheduleRefresh)
       .subscribe();
+    const dashboardRefreshTimer = window.setInterval(() => {
+      loadDashboard({ silent: true });
+    }, DASHBOARD_REFRESH_MS);
 
     return () => {
       window.clearTimeout(refreshTimer);
+      window.clearInterval(dashboardRefreshTimer);
       supabase.removeChannel(channel);
     };
   }, [canUseDashboard]);

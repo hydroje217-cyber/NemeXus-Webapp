@@ -607,10 +607,53 @@
   color: #9db1bb;
 }
 
-.dark-mode .readings-message {
+.dark-mode .readings-status-log {
+  background: #101c28;
+  border-color: #243747;
+  box-shadow: none;
+}
+
+.dark-mode .readings-status-log header {
+  border-bottom-color: #243747;
+}
+
+.dark-mode .readings-status-log header span {
+  color: #edf7fb;
+}
+
+.dark-mode .readings-status-log header button {
+  background: #173342;
+  border-color: #2e6270;
+  color: #79dbe6;
+}
+
+.dark-mode .readings-status-entry {
+  color: #d7e8ee;
+  border-top-color: #243747;
+}
+
+.dark-mode .readings-status-entry time {
+  color: #9db1bb;
+}
+
+.dark-mode .readings-status-entry.loading {
   background: #0f302c;
-  border-color: #1b675e;
-  color: #7be2d4;
+}
+
+.dark-mode .readings-status-entry.success {
+  background: #123021;
+}
+
+.dark-mode .readings-status-entry.warning {
+  background: #332916;
+}
+
+.dark-mode .readings-status-entry.error {
+  background: #351c21;
+}
+
+.dark-mode .readings-status-entry.info {
+  background: #142d3a;
 }
 
 .dark-mode .delete-account-button {
@@ -837,6 +880,28 @@
 
 .dark-mode .presence-badge.offline {
   background: rgba(183, 203, 210, 0.12);
+  color: #b7cbd2;
+}
+
+.dark-mode .account-filter-row button {
+  background: #0f1b25;
+  border-color: #2b4351;
+  color: #b7cbd2;
+}
+
+.dark-mode .account-filter-row button:hover {
+  border-color: #3c8f9c;
+  color: #79dbe6;
+}
+
+.dark-mode .account-filter-row button.active {
+  background: #102f38;
+  border-color: #35c8d6;
+  color: #7be2d4;
+  box-shadow: inset 0 -2px 0 #35c8d6;
+}
+
+.dark-mode .log-role-filter {
   color: #b7cbd2;
 }
 
