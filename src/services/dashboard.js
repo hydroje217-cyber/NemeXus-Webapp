@@ -33,6 +33,7 @@ const LOGIN_LOG_SELECT =
   'id, user_id, email, role, browser, device, user_agent, created_at, profile:profiles(full_name, email)';
 const LOGIN_LOG_FALLBACK_SELECT = 'id, user_id, email, role, browser, device, user_agent, created_at';
 const LEGACY_LOGIN_LOG_SELECT = 'id, profile_id, email, full_name, role, logged_in_at, user_agent';
+const ANALYTICS_RAW_READING_LIMIT = 5000;
 
 function startOfTodayIso() {
   const now = new Date();
@@ -121,7 +122,7 @@ async function queryRawReadings({ table, select, fallbackSelect, siteType, fromI
   return (result.data ?? []).map((row) => normalizeRawReading(row, siteType));
 }
 
-async function loadRecentRawReadings({ fromIso, limit }) {
+async function loadRawReadings({ fromIso, limit }) {
   const [chlorinationReadings, deepwellReadings] = await Promise.all([
     queryRawReadings({
       table: 'chlorination_readings',
@@ -141,7 +142,11 @@ async function loadRecentRawReadings({ fromIso, limit }) {
     }),
   ]);
 
-  return [...chlorinationReadings, ...deepwellReadings].sort(sortByCreatedAtDesc).slice(0, limit * 2);
+  return [...chlorinationReadings, ...deepwellReadings].sort(sortByCreatedAtDesc);
+}
+
+async function loadRecentRawReadings({ fromIso, limit }) {
+  return (await loadRawReadings({ fromIso, limit })).slice(0, limit * 2);
 }
 
 function sortByCreatedAtDesc(a, b) {
@@ -149,6 +154,159 @@ function sortByCreatedAtDesc(a, b) {
     new Date(b.slot_datetime || b.reading_datetime || b.created_at || 0).getTime() -
     new Date(a.slot_datetime || a.reading_datetime || a.created_at || 0).getTime()
   );
+}
+
+function getReadingDateKey(row) {
+  return String(row?.slot_datetime || row?.reading_datetime || row?.created_at || '').slice(0, 10);
+}
+
+function mergeSummaryAndRawRows(summaryRows, rawRows) {
+  const summaryKeys = new Set(
+    summaryRows.map((row) => `${row.site_id || row.site?.id || row.sites?.id || ''}:${getReadingDateKey(row)}`).filter((key) => !key.endsWith(':'))
+  );
+  const rawRowsWithoutSummaryDays = rawRows.filter((row) => {
+    const key = `${row.site_id || row.site?.id || row.sites?.id || ''}:${getReadingDateKey(row)}`;
+    return !summaryKeys.has(key);
+  });
+
+  return [...summaryRows, ...rawRowsWithoutSummaryDays].sort(sortByCreatedAtDesc);
+}
+
+function parseReadingNumber(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function averageReadingValue(rows, field) {
+  const values = rows.map((row) => parseReadingNumber(row[field])).filter((value) => value !== null);
+
+  if (!values.length) {
+    return null;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function sumReadingValue(rows, field) {
+  return rows
+    .map((row) => parseReadingNumber(row[field]))
+    .filter((value) => value !== null)
+    .reduce((sum, value) => sum + value, 0);
+}
+
+function latestReadingValue(rows, field) {
+  const latest = [...rows]
+    .map((row) => ({
+      value: parseReadingNumber(row[field]),
+      time: new Date(row.slot_datetime || row.reading_datetime || row.created_at || 0).getTime(),
+    }))
+    .filter((row) => row.value !== null)
+    .sort((first, second) => first.time - second.time)
+    .at(-1);
+
+  return latest?.value ?? null;
+}
+
+function positiveDifference(currentValue, previousValue) {
+  if (currentValue === null || previousValue === null || currentValue < previousValue) {
+    return null;
+  }
+
+  return currentValue - previousValue;
+}
+
+function createRawDailySummaryRows(rawRows) {
+  const rowsBySiteAndDate = rawRows.reduce((map, row) => {
+    const siteId = row.site_id || row.site?.id || row.sites?.id;
+    const date = getReadingDateKey(row);
+
+    if (!siteId || !date) {
+      return map;
+    }
+
+    const key = `${row.site_type}:${siteId}:${date}`;
+    const current = map.get(key) || [];
+    current.push(row);
+    map.set(key, current);
+    return map;
+  }, new Map());
+  const previousValuesBySite = new Map();
+
+  return Array.from(rowsBySiteAndDate.entries())
+    .sort(([firstKey], [secondKey]) => firstKey.localeCompare(secondKey))
+    .map(([key, rows]) => {
+      const [siteType, siteId, date] = key.split(':');
+      const firstRow = rows[0];
+      const site = firstRow.site || firstRow.sites || null;
+      const previousValues = previousValuesBySite.get(`${siteType}:${siteId}`) || {};
+
+      if (siteType === 'CHLORINATION') {
+        const latestTotalizer = latestReadingValue(rows, 'totalizer');
+        const latestPower = latestReadingValue(rows, 'chlorination_power_kwh');
+        const summaryRow = normalizeReading(
+          {
+            id: `raw-summary:${key}`,
+            site_id: siteId,
+            site,
+            sites: site,
+            is_daily_summary: true,
+            reading_datetime: `${date}T00:00:00.000Z`,
+            slot_datetime: `${date}T00:00:00.000Z`,
+            status: 'mobile readings',
+            source: 'mobile readings',
+            totalizer: positiveDifference(latestTotalizer, previousValues.totalizer),
+            chlorination_power_kwh: positiveDifference(latestPower, previousValues.power),
+            chlorine_consumed: sumReadingValue(rows, 'chlorine_consumed'),
+            peroxide_consumption: sumReadingValue(rows, 'peroxide_consumption'),
+            pressure_psi: averageReadingValue(rows, 'pressure_psi'),
+            rc_ppm: averageReadingValue(rows, 'rc_ppm'),
+            turbidity_ntu: averageReadingValue(rows, 'turbidity_ntu'),
+            ph: averageReadingValue(rows, 'ph'),
+            tds_ppm: averageReadingValue(rows, 'tds_ppm'),
+            flowrate_m3hr: averageReadingValue(rows, 'flowrate_m3hr'),
+            submitted_profile: null,
+          },
+          siteType
+        );
+
+        previousValuesBySite.set(`${siteType}:${siteId}`, {
+          totalizer: latestTotalizer ?? previousValues.totalizer ?? null,
+          power: latestPower ?? previousValues.power ?? null,
+        });
+
+        return summaryRow;
+      }
+
+      return normalizeReading(
+        {
+          id: `raw-summary:${key}`,
+          site_id: siteId,
+          site,
+          sites: site,
+          is_daily_summary: true,
+          reading_datetime: `${date}T00:00:00.000Z`,
+          slot_datetime: `${date}T00:00:00.000Z`,
+          status: 'mobile readings',
+          source: 'mobile readings',
+          upstream_pressure_psi: averageReadingValue(rows, 'upstream_pressure_psi'),
+          downstream_pressure_psi: averageReadingValue(rows, 'downstream_pressure_psi'),
+          flowrate_m3hr: averageReadingValue(rows, 'flowrate_m3hr'),
+          vfd_frequency_hz: averageReadingValue(rows, 'vfd_frequency_hz'),
+          voltage_l1_v: averageReadingValue(rows, 'voltage_l1_v'),
+          voltage_l2_v: averageReadingValue(rows, 'voltage_l2_v'),
+          voltage_l3_v: averageReadingValue(rows, 'voltage_l3_v'),
+          amperage_a: averageReadingValue(rows, 'amperage_a'),
+          tds_ppm: averageReadingValue(rows, 'tds_ppm'),
+          power_kwh_shift: sumReadingValue(rows, 'power_kwh_shift'),
+          submitted_profile: null,
+        },
+        siteType
+      );
+    });
 }
 
 function throwIfError(result, message) {
@@ -323,6 +481,7 @@ export async function updateProfileEmail(profileId, email) {
 export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const todayIso = startOfTodayIso();
   const checkpointFromIso = new Date(new Date(todayIso).getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const analyticsFromIso = startOfYearlyAnalyticsSourceIso();
 
   const [
     pendingApprovals,
@@ -336,6 +495,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     loginLogs,
     operators,
     monthlySummaries,
+    analyticsRawReadings,
   ] = await Promise.all([
     supabase
       .from('profiles')
@@ -376,8 +536,9 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     supabase
       .from('daily_site_summaries')
       .select(DAILY_SUMMARY_SELECT)
-      .gte('summary_date', startOfYearlyAnalyticsSourceIso().slice(0, 10))
+      .gte('summary_date', analyticsFromIso.slice(0, 10))
       .order('summary_date', { ascending: true }),
+    loadRawReadings({ fromIso: analyticsFromIso, limit: ANALYTICS_RAW_READING_LIMIT }),
   ]);
 
   throwIfError(pendingApprovals, 'Failed to load pending approvals.');
@@ -398,7 +559,10 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const recentReadings = enrichReadingsWithInferredShiftOwnership(
     recentRawReadings.length ? recentRawReadings : recentSummaryRows
   );
-  const monthlyRows = (monthlySummaries.data ?? []).map(normalizeDailySummary);
+  const monthlyRows = mergeSummaryAndRawRows(
+    (monthlySummaries.data ?? []).map(normalizeDailySummary),
+    createRawDailySummaryRows(analyticsRawReadings)
+  );
   const monthlyChlorination = monthlyRows.filter((row) => row.site_type === 'CHLORINATION');
   const monthlyDeepwell = monthlyRows.filter((row) => row.site_type === 'DEEPWELL');
 

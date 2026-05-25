@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronDown, Clock, Droplets, FlaskConical, Grid3X3, History, Hourglass, Users, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronDown, Clock, Droplets, Eye, FlaskConical, Grid3X3, History, Hourglass, Users, X, Zap } from 'lucide-react';
 import {
   Bar,
   BarChart as RechartsBarChart,
@@ -757,43 +757,145 @@ function getReadingOperatorName(reading) {
   );
 }
 
-function getCurrentShiftOperator(readings, now = new Date()) {
+function normalizeIdentity(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getReadingOperatorKeys(reading) {
+  return new Set(
+    [
+      reading?.submitted_profile?.id ? `id:${reading.submitted_profile.id}` : '',
+      reading?.submitted_profile?.email ? `email:${normalizeIdentity(reading.submitted_profile.email)}` : '',
+      reading?.submitted_profile?.full_name ? `name:${normalizeIdentity(reading.submitted_profile.full_name)}` : '',
+      reading?.shift_match?.operator?.id ? `id:${reading.shift_match.operator.id}` : '',
+      reading?.shift_match?.operator?.email ? `email:${normalizeIdentity(reading.shift_match.operator.email)}` : '',
+      reading?.shift_match?.operator?.name ? `name:${normalizeIdentity(reading.shift_match.operator.name)}` : '',
+    ].filter(Boolean)
+  );
+}
+
+function getOperatorKeys(operator) {
+  return new Set(
+    [
+      operator?.id ? `id:${operator.id}` : '',
+      operator?.email ? `email:${normalizeIdentity(operator.email)}` : '',
+      operator?.full_name ? `name:${normalizeIdentity(operator.full_name)}` : '',
+    ].filter(Boolean)
+  );
+}
+
+function getReadingSiteName(reading) {
+  return reading?.site?.name || reading?.sites?.name || (reading?.site_type === 'DEEPWELL' ? 'Deepwell reading' : 'Chlorination reading');
+}
+
+function getReadingDetailFields(reading) {
+  if (!reading) {
+    return [];
+  }
+
+  const sharedFields = [
+    ['Site', getReadingSiteName(reading)],
+    ['Status', reading.status || 'submitted'],
+    ['Slot', formatDateTime(reading.slot_datetime)],
+    ['Recorded at', formatDateTime(reading.reading_datetime || reading.created_at)],
+    ['Recorded by', getReadingOperatorName(reading) || '-'],
+    ['Remarks', reading.remarks || '-'],
+  ];
+  const typeFields =
+    reading.site_type === 'CHLORINATION'
+      ? [
+          ['Pressure', reading.pressure_psi ?? '-'],
+          ['Residual chlorine', reading.rc_ppm ?? '-'],
+          ['Turbidity', reading.turbidity_ntu ?? '-'],
+          ['pH', reading.ph ?? '-'],
+          ['TDS', reading.tds_ppm ?? '-'],
+          ['Tank level', reading.tank_level_liters ?? '-'],
+          ['Flowrate', reading.flowrate_m3hr ?? '-'],
+          ['Totalizer', reading.totalizer ?? '-'],
+          ['Power kWh', reading.chlorination_power_kwh ?? '-'],
+          ['Chlorine used', reading.chlorine_consumed ?? '-'],
+          ['Peroxide', reading.peroxide_consumption ?? '-'],
+        ]
+      : [
+          ['Upstream pressure', reading.upstream_pressure_psi ?? '-'],
+          ['Downstream pressure', reading.downstream_pressure_psi ?? '-'],
+          ['Flowrate', reading.flowrate_m3hr ?? '-'],
+          ['Frequency', reading.vfd_frequency_hz ?? '-'],
+          ['Voltage L1', reading.voltage_l1_v ?? '-'],
+          ['Voltage L2', reading.voltage_l2_v ?? '-'],
+          ['Voltage L3', reading.voltage_l3_v ?? '-'],
+          ['Amperage', reading.amperage_a ?? '-'],
+          ['TDS', reading.tds_ppm ?? '-'],
+          ['Power kWh', reading.power_kwh_shift ?? '-'],
+        ];
+
+  return [...sharedFields, ...typeFields];
+}
+
+function getCurrentShiftOperators(readings, now = new Date()) {
   const { shift, start, end } = getShiftWindow('current', now);
-  const firstReading = (readings ?? [])
+  const byType = {
+    CHLORINATION: null,
+    DEEPWELL: null,
+  };
+
+  (readings ?? [])
     .filter((reading) => {
       const operatorName = getReadingOperatorName(reading);
       const timestamp = new Date(getReadingTimestamp(reading));
 
       return operatorName && !Number.isNaN(timestamp.getTime()) && timestamp >= start && timestamp < end;
     })
-    .sort((first, second) => new Date(getReadingTimestamp(first)).getTime() - new Date(getReadingTimestamp(second)).getTime())[0];
+    .sort((first, second) => new Date(getReadingTimestamp(first)).getTime() - new Date(getReadingTimestamp(second)).getTime())
+    .forEach((reading) => {
+      if (!byType[reading.site_type]) {
+        byType[reading.site_type] = {
+          siteType: reading.site_type,
+          operatorName: getReadingOperatorName(reading),
+          operatorKeys: getReadingOperatorKeys(reading),
+          reading,
+        };
+      }
+    });
 
   return {
     shift,
-    operatorName: getReadingOperatorName(firstReading),
+    byType,
   };
 }
 
-function isCurrentShiftOperator(operator, currentShiftOperator) {
-  if (!currentShiftOperator.operatorName) {
-    return false;
-  }
+function getCurrentOperatorSiteTypes(operator, currentShiftOperators) {
+  const operatorKeys = getOperatorKeys(operator);
 
-  const operatorName = operator.full_name || operator.email || '';
-  return operatorName.toLowerCase() === currentShiftOperator.operatorName.toLowerCase();
+  return ['CHLORINATION', 'DEEPWELL'].filter((siteType) => {
+    const assignment = currentShiftOperators.byType[siteType];
+
+    if (!assignment?.operatorKeys?.size || !operatorKeys.size) {
+      return false;
+    }
+
+    return [...operatorKeys].some((key) => assignment.operatorKeys.has(key));
+  });
 }
 
 function OperatorsPanel({ operators, readings, panelRef }) {
   const [currentShift, setCurrentShift] = useState(() => getCurrentShift());
-  const currentShiftOperator = getCurrentShiftOperator(readings);
+  const currentShiftOperators = getCurrentShiftOperators(readings);
   const operatorRows = (operators ?? [])
     .filter((operator) => operator.role === 'operator')
     .sort((first, second) => {
-      const firstIsCurrentShift = isCurrentShiftOperator(first, currentShiftOperator);
-      const secondIsCurrentShift = isCurrentShiftOperator(second, currentShiftOperator);
+      const firstSiteTypes = getCurrentOperatorSiteTypes(first, currentShiftOperators);
+      const secondSiteTypes = getCurrentOperatorSiteTypes(second, currentShiftOperators);
 
-      if (firstIsCurrentShift !== secondIsCurrentShift) {
-        return firstIsCurrentShift ? -1 : 1;
+      if (firstSiteTypes.length !== secondSiteTypes.length) {
+        return secondSiteTypes.length - firstSiteTypes.length;
+      }
+
+      const firstPriority = firstSiteTypes.includes('CHLORINATION') ? 0 : firstSiteTypes.includes('DEEPWELL') ? 1 : 2;
+      const secondPriority = secondSiteTypes.includes('CHLORINATION') ? 0 : secondSiteTypes.includes('DEEPWELL') ? 1 : 2;
+
+      if (firstPriority !== secondPriority) {
+        return firstPriority - secondPriority;
       }
 
       const firstName = first.full_name || first.email || '';
@@ -812,20 +914,26 @@ function OperatorsPanel({ operators, readings, panelRef }) {
   return (
     <section className="operator-list-panel" ref={panelRef}>
       <header className="recent-readings-heading operator-heading">
-        <div>
-          <span className="section-icon">
-            <Users size={16} />
-          </span>
-          <div>
-            <h3>Operators</h3>
-            <p>{operatorRows.length} operator account(s)</p>
+        <div className="operator-heading-row primary">
+          <div className="operator-heading-title">
+            <span className="section-icon">
+              <Users size={16} />
+            </span>
+            <div>
+              <h3>Operators</h3>
+            </div>
           </div>
-        </div>
-        <div className="operator-shift-summary">
-          <strong className="operator-current-shift">
-            {currentShiftOperator.operatorName ? `${currentShiftOperator.operatorName}'s shift` : 'Waiting for first reading'}
-          </strong>
           <strong className="operator-shift-badge">{currentShift}</strong>
+          <strong className={currentShiftOperators.byType.CHLORINATION ? 'operator-current-shift chlorination' : 'operator-current-shift missing'}>
+            Chlorination: {currentShiftOperators.byType.CHLORINATION?.operatorName || 'Waiting'}
+          </strong>
+        </div>
+
+        <div className="operator-heading-row secondary">
+          <p>{operatorRows.length} operator account(s)</p>
+          <strong className={currentShiftOperators.byType.DEEPWELL ? 'operator-current-shift deepwell' : 'operator-current-shift missing'}>
+            Deepwell: {currentShiftOperators.byType.DEEPWELL?.operatorName || 'Waiting'}
+          </strong>
         </div>
       </header>
 
@@ -836,13 +944,27 @@ function OperatorsPanel({ operators, readings, panelRef }) {
           <div className="operator-card-grid">
             {operatorRows.map((operator) => {
               const status = getOperatorStatus(operator);
-              const isShiftOperator = isCurrentShiftOperator(operator, currentShiftOperator);
+              const shiftSiteTypes = getCurrentOperatorSiteTypes(operator, currentShiftOperators);
+              const isShiftOperator = shiftSiteTypes.length > 0;
+              const operatorClassName = [
+                'operator-card',
+                isShiftOperator ? 'current-shift-operator' : '',
+                shiftSiteTypes.includes('CHLORINATION') ? 'chlorination-shift-operator' : '',
+                shiftSiteTypes.includes('DEEPWELL') ? 'deepwell-shift-operator' : '',
+                shiftSiteTypes.length > 1 ? 'dual-shift-operator' : '',
+              ]
+                .filter(Boolean)
+                .join(' ');
+              const assignmentLabel = shiftSiteTypes.length
+                ? `${shiftSiteTypes.map((siteType) => (siteType === 'CHLORINATION' ? 'Chlorination' : 'Deepwell')).join(' + ')} operator`
+                : 'Operator';
+
               return (
-                <article className={isShiftOperator ? 'operator-card current-shift-operator' : 'operator-card'} key={operator.id}>
+                <article className={operatorClassName} key={operator.id}>
                   <div className="recent-reading-topline">
                     <div>
                       <h4>{operator.full_name || operator.email || 'Operator'}</h4>
-                      <span>{isShiftOperator ? 'Current shift operator' : 'Operator'}</span>
+                      <span>{assignmentLabel}</span>
                     </div>
                   </div>
 
@@ -1030,8 +1152,10 @@ function buildCheckpointData(readings, { now, siteType, shift }) {
       return {
         key: site.id,
         name: site.name,
+        siteType: site.siteType,
         complete: Boolean(reading),
         operator,
+        reading,
       };
     });
     const completeCount = items.filter((item) => item.complete).length;
@@ -1059,6 +1183,7 @@ function buildCheckpointData(readings, { now, siteType, shift }) {
 function RecentReadingsPanel({ readings }) {
   const [typeFilter, setTypeFilter] = useState('all');
   const [shiftFilter, setShiftFilter] = useState('current');
+  const [selectedReading, setSelectedReading] = useState(null);
   const checkpointData = buildCheckpointData(readings ?? [], {
     now: new Date(),
     siteType: typeFilter,
@@ -1159,15 +1284,35 @@ function RecentReadingsPanel({ readings }) {
                     <strong>{slot.badge}</strong>
                   </div>
                   <div className="checkpoint-site-grid">
-                    {slot.items.map((item) => (
-                      <div className={`checkpoint-site-card ${item.complete ? 'complete' : slot.status === 'due' ? 'due' : 'missing'}`} key={item.key}>
-                        <span>{item.complete ? <CheckCircle2 size={15} /> : slot.status === 'due' ? <Clock size={15} /> : <AlertTriangle size={15} />}</span>
-                        <div>
-                          <strong>{item.name}</strong>
-                          <p>{item.complete ? `Done by ${item.operator}` : slot.status === 'due' ? 'Due now' : 'Missing'}</p>
+                    {slot.items.map((item) => {
+                      const siteTheme = item.siteType === 'DEEPWELL' ? 'deepwell' : 'chlorination';
+                      const cardClassName = `checkpoint-site-card ${siteTheme} ${item.complete ? 'complete clickable' : slot.status === 'due' ? 'due' : 'missing'}`;
+                      const cardContent = (
+                        <>
+                          <span>{item.complete ? <Eye size={15} /> : slot.status === 'due' ? <Clock size={15} /> : <AlertTriangle size={15} />}</span>
+                          <div>
+                            <strong>{item.name}</strong>
+                            <p>{item.complete ? `Done by ${item.operator}` : slot.status === 'due' ? 'Due now' : 'Missing'}</p>
+                          </div>
+                        </>
+                      );
+
+                      return item.complete ? (
+                        <button
+                          type="button"
+                          className={cardClassName}
+                          key={item.key}
+                          aria-label={`View ${item.name} reading details`}
+                          onClick={() => setSelectedReading(item.reading)}
+                        >
+                          {cardContent}
+                        </button>
+                      ) : (
+                        <div className={cardClassName} key={item.key}>
+                          {cardContent}
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               </article>
@@ -1177,6 +1322,27 @@ function RecentReadingsPanel({ readings }) {
       ) : (
         <p className="chart-empty">No elapsed checkpoints found for this filter.</p>
       )}
+      {selectedReading ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setSelectedReading(null)}>
+          <section className="reading-detail-dialog" role="dialog" aria-modal="true" aria-label="Reading details" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="dialog-close-button" aria-label="Close details" onClick={() => setSelectedReading(null)}>
+              <X size={18} />
+            </button>
+            <div>
+              <p className="eyebrow">{selectedReading.site_type === 'CHLORINATION' ? 'Chlorination' : 'Deepwell'}</p>
+              <h3>{getReadingSiteName(selectedReading)}</h3>
+            </div>
+            <div className="reading-detail-grid">
+              {getReadingDetailFields(selectedReading).map(([label, value]) => (
+                <div key={label}>
+                  <span>{label}</span>
+                  <strong>{value}</strong>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
