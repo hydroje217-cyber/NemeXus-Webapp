@@ -7,11 +7,20 @@ const CHLORINATION = 'CHLORINATION';
 const DEEPWELL = 'DEEPWELL';
 const ALL_SITES = 'all';
 const DEFAULT_LIMIT = '50';
+const NO_LIMIT = 'all';
 const PAGE_SIZE = 25;
 const SITE_TYPE_OPTIONS = [
   { value: ALL_SITES, label: 'All sites' },
   { value: CHLORINATION, label: 'Chlorination' },
   { value: DEEPWELL, label: 'Deepwell' },
+];
+const LIMIT_OPTIONS = [
+  { value: '1', label: '1' },
+  { value: '25', label: '25' },
+  { value: '50', label: '50' },
+  { value: '100', label: '100' },
+  { value: '200', label: '200' },
+  { value: NO_LIMIT, label: 'No limit' },
 ];
 
 function formatDateInputValue(date) {
@@ -104,6 +113,14 @@ function shiftDateValue(value, amount) {
 
   parsed.setDate(parsed.getDate() + amount);
   return parsed.toISOString().slice(0, 10);
+}
+
+function getQueryLimit(value) {
+  if (value === NO_LIMIT) {
+    return undefined;
+  }
+
+  return Math.min(200, Math.max(1, Number(value) || Number(DEFAULT_LIMIT)));
 }
 
 function downloadBlob(content, fileName, type) {
@@ -550,10 +567,13 @@ export default function ReadingsScreen() {
     const effectiveFromDate = nextFilters.fromDate ?? fromDate;
     const effectiveToDate = nextFilters.toDate ?? toDate;
     const effectiveLimit = nextFilters.limit ?? limit;
-    const safeLimit = Math.min(200, Math.max(1, Number(effectiveLimit) || 8));
+    const queryLimit = getQueryLimit(effectiveLimit);
     const effectiveSiteLabel = SITE_TYPE_OPTIONS.find((option) => option.value === effectiveTableMode)?.label || 'All sites';
 
-    appendStatusLog('loading', `Loading ${effectiveSiteLabel.toLowerCase()} readings from ${effectiveFromDate || 'the first record'} to ${effectiveToDate || 'today'}.`);
+    appendStatusLog(
+      'loading',
+      `Loading ${queryLimit ? `up to ${queryLimit} ` : 'all '}${effectiveSiteLabel.toLowerCase()} readings from ${effectiveFromDate || 'the first record'} to ${effectiveToDate || 'today'}.`
+    );
 
     if (effectiveFromDate && effectiveToDate && effectiveFromDate > effectiveToDate) {
       if (loadRequestRef.current === requestId) {
@@ -582,7 +602,7 @@ export default function ReadingsScreen() {
         effectiveTableMode === ALL_SITES ? [] : effectiveTableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
 
       const [nextItems, averagingItems] = await Promise.all([
-        listReadings({ ...filters, limit: safeLimit }),
+        listReadings({ ...filters, limit: queryLimit }),
         fields.length ? listReadings({ ...averagingFilters }) : Promise.resolve([]),
       ]);
       const averageRows = fields.length
@@ -723,9 +743,13 @@ export default function ReadingsScreen() {
 
           <label className="readings-field limit-field">
             <span>Limit</span>
-            <div className="input-with-icon">
+            <div className="select-with-icon">
               <List size={17} />
-              <input type="number" min="1" max="200" value={limit} onChange={(event) => setLimit(event.target.value)} />
+              <select value={limit} onChange={(event) => setLimit(event.target.value)}>
+                {LIMIT_OPTIONS.map((option) => (
+                  <option value={option.value} key={option.value}>{option.label}</option>
+                ))}
+              </select>
             </div>
           </label>
 

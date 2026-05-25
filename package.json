@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "vite --host 0.0.0.0 --port 5173 --strictPort",
-    "dev": "vite --host 0.0.0.0 --port 5173 --strictPort",
-    "web": "vite --host 0.0.0.0 --port 5173 --strictPort",
-    "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4173 --strictPort",
+    "start": "node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 5173 --strictPort",
+    "dev": "node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 5173 --strictPort",
+    "web": "node ./node_modules/vite/bin/vite.js --host 0.0.0.0 --port 5173 --strictPort",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview --host 0.0.0.0 --port 4173 --strictPort",
     "test": "node --test \"src/**/*.test.js\"",
     "qa:screenshots": "node scripts/screenshot-qa.mjs"
   },

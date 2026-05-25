@@ -98,6 +98,7 @@
 .dark-mode input,
 .dark-mode select,
 .dark-mode .input-with-icon,
+.dark-mode .select-with-icon,
 .dark-mode .freshness-pill,
 .dark-mode .status-pill,
 .dark-mode .chart-empty,
@@ -310,11 +311,13 @@
   opacity: 0.9;
 }
 
-.dark-mode .input-with-icon {
+.dark-mode .input-with-icon,
+.dark-mode .select-with-icon {
   box-shadow: inset 0 0 0 1px rgba(98, 143, 157, 0.18);
 }
 
-.dark-mode .input-with-icon svg {
+.dark-mode .input-with-icon svg,
+.dark-mode .select-with-icon svg {
   color: #9bb9c2;
 }
 

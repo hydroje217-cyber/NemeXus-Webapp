@@ -11,6 +11,7 @@ const CHLORINATION_READING_FALLBACK_SELECT =
   'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, pressure_psi, rc_ppm, turbidity_ntu, ph, tds_ppm, tank_level_liters, flowrate_m3hr, totalizer, chlorination_power_kwh, chlorine_consumed, peroxide_consumption, sites(id, name, type)';
 const DEEPWELL_READING_FALLBACK_SELECT =
   'id, site_id, slot_datetime, reading_datetime, created_at, updated_at, status, remarks, upstream_pressure_psi, downstream_pressure_psi, flowrate_m3hr, vfd_frequency_hz, voltage_l1_v, voltage_l2_v, voltage_l3_v, amperage_a, tds_ppm, power_kwh_shift, sites(id, name, type)';
+const SUPABASE_PAGE_SIZE = 1000;
 
 function summaryDateToIso(summaryDate) {
   return summaryDate ? `${summaryDate}T00:00:00.000Z` : null;
@@ -126,6 +127,36 @@ function applyRawReadingFilters(query, { fromDate, toDate, limit }) {
   return nextQuery;
 }
 
+async function fetchRows(queryFactory, limit) {
+  if (typeof limit === 'number' && Number.isFinite(limit)) {
+    const result = await queryFactory();
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    return result.data ?? [];
+  }
+
+  const rows = [];
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const result = await queryFactory().range(from, to);
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    const pageRows = result.data ?? [];
+    rows.push(...pageRows);
+
+    if (pageRows.length < SUPABASE_PAGE_SIZE) {
+      return rows;
+    }
+  }
+}
+
 async function queryRawReadings({ table, select, fallbackSelect, siteType, fromDate, toDate, limit }) {
   const query = (selectClause) =>
     applyRawReadingFilters(supabase.from(table).select(selectClause), {
@@ -133,17 +164,16 @@ async function queryRawReadings({ table, select, fallbackSelect, siteType, fromD
       toDate,
       limit,
     });
-  let result = await query(select);
 
-  if (result.error && fallbackSelect) {
-    result = await query(fallbackSelect);
+  try {
+    return (await fetchRows(() => query(select), limit)).map((row) => normalizeRawReading(row, siteType));
+  } catch (error) {
+    if (!fallbackSelect) {
+      throw error;
+    }
   }
 
-  if (result.error) {
-    throw result.error;
-  }
-
-  return (result.data ?? []).map((row) => normalizeRawReading(row, siteType));
+  return (await fetchRows(() => query(fallbackSelect), limit)).map((row) => normalizeRawReading(row, siteType));
 }
 
 function mergeSummaryAndRawReadings(summaryRows, rawRows, limit) {
@@ -172,12 +202,16 @@ export async function listReadings({ siteType, fromDate, toDate, limit }) {
   }
 
   if (siteType === 'CHLORINATION' || siteType === 'DEEPWELL') {
-    const [summaryResult, rawReadings] = await Promise.all([
-      applyReadingFilters(supabase.from('daily_site_summaries').select(DAILY_SUMMARY_SELECT).eq('sites.type', siteType), {
-        fromDate,
-        toDate,
-        limit,
-      }),
+    const [summaryRows, rawReadings] = await Promise.all([
+      fetchRows(
+        () =>
+          applyReadingFilters(supabase.from('daily_site_summaries').select(DAILY_SUMMARY_SELECT).eq('sites.type', siteType), {
+            fromDate,
+            toDate,
+            limit,
+          }),
+        limit
+      ),
       queryRawReadings({
         table: siteType === 'CHLORINATION' ? 'chlorination_readings' : 'deepwell_readings',
         select: siteType === 'CHLORINATION' ? CHLORINATION_READING_SELECT : DEEPWELL_READING_SELECT,
@@ -190,12 +224,9 @@ export async function listReadings({ siteType, fromDate, toDate, limit }) {
       }),
     ]);
 
-    if (summaryResult.error) {
-      throw summaryResult.error;
-    }
-
-    const summaryRows = (summaryResult.data ?? []).map((row) => normalizeDailySummary(row, siteType));
-    return enrichReadingsWithInferredShiftOwnership(mergeSummaryAndRawReadings(summaryRows, rawReadings, limit));
+    return enrichReadingsWithInferredShiftOwnership(
+      mergeSummaryAndRawReadings(summaryRows.map((row) => normalizeDailySummary(row, siteType)), rawReadings, limit)
+    );
   }
 
   return [];
