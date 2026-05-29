@@ -788,48 +788,61 @@ function getReadingSiteName(reading) {
   return reading?.site?.name || reading?.sites?.name || (reading?.site_type === 'DEEPWELL' ? 'Deepwell reading' : 'Chlorination reading');
 }
 
+function formatReadingDetailValue(value, unit = '') {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  return unit ? `${value} ${unit}` : String(value);
+}
+
+function formatReadingSlotLabel(value) {
+  if (!value) {
+    return '-';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  return `${String(parsed.getHours()).padStart(2, '0')}${String(parsed.getMinutes()).padStart(2, '0')}H`;
+}
+
 function getReadingDetailFields(reading) {
   if (!reading) {
     return [];
   }
 
-  const sharedFields = [
-    ['Site', getReadingSiteName(reading)],
-    ['Status', reading.status || 'submitted'],
-    ['Slot', formatDateTime(reading.slot_datetime)],
-    ['Recorded at', formatDateTime(reading.reading_datetime || reading.created_at)],
-    ['Recorded by', getReadingOperatorName(reading) || '-'],
-    ['Remarks', reading.remarks || '-'],
-  ];
   const typeFields =
     reading.site_type === 'CHLORINATION'
       ? [
-          ['Pressure', reading.pressure_psi ?? '-'],
-          ['Residual chlorine', reading.rc_ppm ?? '-'],
-          ['Turbidity', reading.turbidity_ntu ?? '-'],
-          ['pH', reading.ph ?? '-'],
-          ['TDS', reading.tds_ppm ?? '-'],
-          ['Tank level', reading.tank_level_liters ?? '-'],
-          ['Flowrate', reading.flowrate_m3hr ?? '-'],
-          ['Totalizer', reading.totalizer ?? '-'],
-          ['Power kWh', reading.chlorination_power_kwh ?? '-'],
-          ['Chlorine used', reading.chlorine_consumed ?? '-'],
-          ['Peroxide', reading.peroxide_consumption ?? '-'],
+          ['Totalizer', formatReadingDetailValue(reading.totalizer)],
+          ['Pressure', formatReadingDetailValue(reading.pressure_psi, 'psi')],
+          ['RC', formatReadingDetailValue(reading.rc_ppm, 'ppm')],
+          ['Turbidity', formatReadingDetailValue(reading.turbidity_ntu, 'NTU')],
+          ['pH', formatReadingDetailValue(reading.ph)],
+          ['TDS', formatReadingDetailValue(reading.tds_ppm, 'ppm')],
+          ['Tank level', formatReadingDetailValue(reading.tank_level_liters, 'liters')],
+          ['Flowrate', formatReadingDetailValue(reading.flowrate_m3hr, 'm3/hr')],
+          ['Chlorine used', formatReadingDetailValue(reading.chlorine_consumed, 'kg')],
+          ['Peroxide used', formatReadingDetailValue(reading.peroxide_consumption)],
+          ['Power used', formatReadingDetailValue(reading.chlorination_power_kwh, 'kWh')],
         ]
       : [
-          ['Upstream pressure', reading.upstream_pressure_psi ?? '-'],
-          ['Downstream pressure', reading.downstream_pressure_psi ?? '-'],
-          ['Flowrate', reading.flowrate_m3hr ?? '-'],
-          ['Frequency', reading.vfd_frequency_hz ?? '-'],
-          ['Voltage L1', reading.voltage_l1_v ?? '-'],
-          ['Voltage L2', reading.voltage_l2_v ?? '-'],
-          ['Voltage L3', reading.voltage_l3_v ?? '-'],
-          ['Amperage', reading.amperage_a ?? '-'],
-          ['TDS', reading.tds_ppm ?? '-'],
-          ['Power kWh', reading.power_kwh_shift ?? '-'],
+          ['Upstream pressure', formatReadingDetailValue(reading.upstream_pressure_psi, 'psi')],
+          ['Downstream pressure', formatReadingDetailValue(reading.downstream_pressure_psi, 'psi')],
+          ['Flowrate', formatReadingDetailValue(reading.flowrate_m3hr, 'm3/hr')],
+          ['VFD frequency', formatReadingDetailValue(reading.vfd_frequency_hz, 'Hz')],
+          ['Voltage L1', formatReadingDetailValue(reading.voltage_l1_v, 'V')],
+          ['Voltage L2', formatReadingDetailValue(reading.voltage_l2_v, 'V')],
+          ['Voltage L3', formatReadingDetailValue(reading.voltage_l3_v, 'V')],
+          ['Amperage', formatReadingDetailValue(reading.amperage_a, 'A')],
+          ['TDS', formatReadingDetailValue(reading.tds_ppm, 'ppm')],
+          ['Shift power', formatReadingDetailValue(reading.power_kwh_shift, 'kWh')],
         ];
 
-  return [...sharedFields, ...typeFields];
+  return typeFields.filter(([, value]) => value !== '');
 }
 
 function getCurrentShiftOperators(readings, now = new Date()) {
@@ -1141,7 +1154,7 @@ function buildCheckpointData(readings, { now, siteType, shift }) {
     const isFuture = time > currentSlotStart;
 
     if (isFuture) {
-      stats.upcoming += sites.length;
+      stats.upcoming += siteType === 'all' ? 1 : sites.length;
       continue;
     }
 
@@ -1161,8 +1174,16 @@ function buildCheckpointData(readings, { now, siteType, shift }) {
     const completeCount = items.filter((item) => item.complete).length;
     const missingCount = items.length - completeCount;
 
-    stats.complete += completeCount;
-    stats.missing += missingCount;
+    if (siteType === 'all') {
+      if (missingCount) {
+        stats.missing += 1;
+      } else {
+        stats.complete += 1;
+      }
+    } else {
+      stats.complete += completeCount;
+      stats.missing += missingCount;
+    }
 
     rows.push({
       key: String(time),
@@ -1289,11 +1310,18 @@ function RecentReadingsPanel({ readings }) {
                       const cardClassName = `checkpoint-site-card ${siteTheme} ${item.complete ? 'complete clickable' : slot.status === 'due' ? 'due' : 'missing'}`;
                       const cardContent = (
                         <>
-                          <span>{item.complete ? <Eye size={15} /> : slot.status === 'due' ? <Clock size={15} /> : <AlertTriangle size={15} />}</span>
+                          <span className="checkpoint-status-icon">
+                            {item.complete ? <CheckCircle2 size={16} /> : slot.status === 'due' ? <Clock size={15} /> : <AlertTriangle size={15} />}
+                          </span>
                           <div>
                             <strong>{item.name}</strong>
                             <p>{item.complete ? `Done by ${item.operator}` : slot.status === 'due' ? 'Due now' : 'Missing'}</p>
                           </div>
+                          {item.complete ? (
+                            <span className="checkpoint-view-icon" aria-hidden="true">
+                              <Eye size={15} />
+                            </span>
+                          ) : null}
                         </>
                       );
 
@@ -1328,17 +1356,32 @@ function RecentReadingsPanel({ readings }) {
             <button type="button" className="dialog-close-button" aria-label="Close details" onClick={() => setSelectedReading(null)}>
               <X size={18} />
             </button>
-            <div>
+            <header className="reading-detail-header">
               <p className="eyebrow">{selectedReading.site_type === 'CHLORINATION' ? 'Chlorination' : 'Deepwell'}</p>
               <h3>{getReadingSiteName(selectedReading)}</h3>
+              <span>{formatReadingSlotLabel(selectedReading.slot_datetime || selectedReading.reading_datetime)}</span>
+            </header>
+            <div className="reading-detail-meta">
+              <div>
+                <span>Submitted by</span>
+                <strong>{getReadingOperatorName(selectedReading) || '-'}</strong>
+              </div>
+              <div>
+                <span>Saved</span>
+                <strong>{formatDateTime(selectedReading.reading_datetime || selectedReading.created_at)}</strong>
+              </div>
             </div>
-            <div className="reading-detail-grid">
+            <div className={`reading-detail-values ${selectedReading.site_type === 'CHLORINATION' ? 'chlorination' : 'deepwell'}`}>
               {getReadingDetailFields(selectedReading).map(([label, value]) => (
                 <div key={label}>
                   <span>{label}</span>
                   <strong>{value}</strong>
                 </div>
               ))}
+            </div>
+            <div className="reading-detail-remarks">
+              <span>Remarks</span>
+              <strong>{selectedReading.remarks || '-'}</strong>
             </div>
           </section>
         </div>

@@ -1015,12 +1015,13 @@
 }
 
 .checkpoint-site-card {
+  position: relative;
   min-width: 0;
   width: 100%;
   border: 1px solid #d3dde3;
   border-radius: 8px;
   background: #f8fbfc;
-  padding: 12px;
+  padding: 12px 38px 12px 12px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1059,7 +1060,7 @@
   box-shadow: inset 4px 0 0 #f59e0b, 0 12px 28px rgba(245, 158, 11, 0.14);
 }
 
-.checkpoint-site-card > span {
+.checkpoint-site-card .checkpoint-status-icon {
   width: 34px;
   height: 34px;
   border: 1px solid #d3dde3;
@@ -1069,20 +1070,35 @@
   flex: 0 0 auto;
 }
 
-.checkpoint-site-card.complete > span,
-.checkpoint-site-card.due > span {
+.checkpoint-site-card .checkpoint-view-icon {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: #0f8f7c;
+}
+
+.checkpoint-site-card.deepwell .checkpoint-view-icon {
+  color: #9a5b00;
+}
+
+.checkpoint-site-card.complete .checkpoint-status-icon,
+.checkpoint-site-card.due .checkpoint-status-icon {
   background: #e5f5f3;
   border-color: #20bfa3;
   color: #0f8f7c;
 }
 
-.checkpoint-site-card.complete.deepwell > span {
+.checkpoint-site-card.complete.deepwell .checkpoint-status-icon {
   background: #fff3cf;
   border-color: #f5c451;
   color: #9a5b00;
 }
 
-.checkpoint-site-card.missing > span {
+.checkpoint-site-card.missing .checkpoint-status-icon {
   background: #fff1f1;
   border-color: #f1b6b6;
   color: #b42323;

@@ -5,7 +5,6 @@ import { addShiftYieldToRows, addSlotProductionToRows, aggregateDailyRows } from
 
 const CHLORINATION = 'CHLORINATION';
 const DEEPWELL = 'DEEPWELL';
-const ALL_SITES = 'all';
 const DEFAULT_LIMIT = '50';
 const NO_LIMIT = 'all';
 const CUSTOM_LIMIT = 'custom';
@@ -13,7 +12,6 @@ const DEFAULT_CUSTOM_LIMIT = '500';
 const PAGE_SIZE = 25;
 const STATUS_LOG_LIMIT = 2;
 const SITE_TYPE_OPTIONS = [
-  { value: ALL_SITES, label: 'All sites' },
   { value: CHLORINATION, label: 'Chlorination' },
   { value: DEEPWELL, label: 'Deepwell' },
 ];
@@ -99,13 +97,35 @@ function formatTimeSlot(value) {
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    return '-';
+    return value;
   }
 
-  return parsed.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const hours = String(parsed.getHours()).padStart(2, '0');
+  const minutes = String(parsed.getMinutes()).padStart(2, '0');
+  return `${hours}${minutes}H`;
+}
+
+function getShiftKeyForDate(value) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  const minutes = parsed.getHours() * 60 + parsed.getMinutes();
+  if (minutes >= 7 * 60 && minutes < 15 * 60) {
+    return 'a';
+  }
+
+  if (minutes >= 15 * 60 && minutes < 23 * 60) {
+    return 'b';
+  }
+
+  return 'c';
+}
+
+function getShiftLabel(value) {
+  const shiftKey = getShiftKeyForDate(value);
+  return shiftKey ? `${shiftKey.toUpperCase()}-Shift` : '-';
 }
 
 function formatLogTime(value) {
@@ -295,50 +315,48 @@ function getShiftMatchLabel(row) {
   return `${match.shift.label} ${status} ${operator}`;
 }
 
+function formatReadingDetailValue(value, unit = '') {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  return unit ? `${value} ${unit}` : String(value);
+}
+
 function getReadingDetailFields(row) {
   if (!row) {
     return [];
   }
 
-  const sharedFields = [
-    ['Site', row.sites?.name || '-'],
-    ['Status', row.status || '-'],
-    ['Slot', formatShortDateTime(row.slot_datetime)],
-    ['Recorded at', formatShortDateTime(row.reading_datetime)],
-    ['Recorded by', row.submitted_profile?.full_name || row.submitted_profile?.email || '-'],
-    ['Shift match', getShiftMatchLabel(row)],
-    ['Remarks', row.remarks || '-'],
-  ];
-
   const typeFields =
     row.site_type === CHLORINATION
       ? [
-          ['Pressure', row.pressure_psi ?? '-'],
-          ['Residual chlorine', row.rc_ppm ?? '-'],
-          ['Turbidity', row.turbidity_ntu ?? '-'],
-          ['pH', row.ph ?? '-'],
-          ['TDS', row.tds_ppm ?? '-'],
-          ['Tank level', row.tank_level_liters ?? '-'],
-          ['Flowrate', row.flowrate_m3hr ?? '-'],
-          ['Totalizer (m3)', row.totalizer ?? '-'],
-          ['Power used (kWh)', row.chlorination_power_kwh ?? '-'],
-          ['Chlorine used', row.chlorine_consumed ?? '-'],
-          ['Peroxide', row.peroxide_consumption ?? '-'],
+          ['Totalizer', formatReadingDetailValue(row.totalizer)],
+          ['Pressure', formatReadingDetailValue(row.pressure_psi, 'psi')],
+          ['RC', formatReadingDetailValue(row.rc_ppm, 'ppm')],
+          ['Turbidity', formatReadingDetailValue(row.turbidity_ntu, 'NTU')],
+          ['pH', formatReadingDetailValue(row.ph)],
+          ['TDS', formatReadingDetailValue(row.tds_ppm, 'ppm')],
+          ['Tank level', formatReadingDetailValue(row.tank_level_liters, 'liters')],
+          ['Flowrate', formatReadingDetailValue(row.flowrate_m3hr, 'm3/hr')],
+          ['Chlorine used', formatReadingDetailValue(row.chlorine_consumed, 'kg')],
+          ['Peroxide used', formatReadingDetailValue(row.peroxide_consumption)],
+          ['Power used', formatReadingDetailValue(row.chlorination_power_kwh, 'kWh')],
         ]
       : [
-          ['Upstream pressure', row.upstream_pressure_psi ?? '-'],
-          ['Downstream pressure', row.downstream_pressure_psi ?? '-'],
-          ['Flowrate', row.flowrate_m3hr ?? '-'],
-          ['Frequency', row.vfd_frequency_hz ?? '-'],
-          ['Voltage L1', row.voltage_l1_v ?? '-'],
-          ['Voltage L2', row.voltage_l2_v ?? '-'],
-          ['Voltage L3', row.voltage_l3_v ?? '-'],
-          ['Amperage', row.amperage_a ?? '-'],
-          ['TDS', row.tds_ppm ?? '-'],
-          ['Shift power (kWh)', row.power_kwh_shift ?? '-'],
+          ['Upstream pressure', formatReadingDetailValue(row.upstream_pressure_psi, 'psi')],
+          ['Downstream pressure', formatReadingDetailValue(row.downstream_pressure_psi, 'psi')],
+          ['Flowrate', formatReadingDetailValue(row.flowrate_m3hr, 'm3/hr')],
+          ['VFD frequency', formatReadingDetailValue(row.vfd_frequency_hz, 'Hz')],
+          ['Voltage L1', formatReadingDetailValue(row.voltage_l1_v, 'V')],
+          ['Voltage L2', formatReadingDetailValue(row.voltage_l2_v, 'V')],
+          ['Voltage L3', formatReadingDetailValue(row.voltage_l3_v, 'V')],
+          ['Amperage', formatReadingDetailValue(row.amperage_a, 'A')],
+          ['TDS', formatReadingDetailValue(row.tds_ppm, 'ppm')],
+          ['Shift power', formatReadingDetailValue(row.power_kwh_shift, 'kWh')],
         ];
 
-  return [...sharedFields, ...typeFields];
+  return typeFields.filter(([, value]) => value !== '');
 }
 
 function escapeXml(value) {
@@ -492,7 +510,7 @@ function ExportMenu({ exporting, open, onToggle, onSelect, onClose }) {
 
 export default function ReadingsScreen() {
   const initialDateRange = getCurrentMonthDateRange();
-  const [tableMode, setTableMode] = useState(ALL_SITES);
+  const [tableMode, setTableMode] = useState(CHLORINATION);
   const [fromDate, setFromDate] = useState(initialDateRange.fromDate);
   const [toDate, setToDate] = useState(initialDateRange.toDate);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
@@ -526,8 +544,8 @@ export default function ReadingsScreen() {
   const chlorinationColumns = useMemo(
     () => [
       { key: 'date', label: 'Date', render: (row) => formatShortDateTime(row.slot_datetime).slice(0, 10) },
+      { key: 'shift', label: 'Shift', render: (row) => getShiftLabel(row.slot_datetime) },
       { key: 'time', label: 'Time', render: (row) => formatTimeSlot(row.slot_datetime) },
-      { key: 'site', label: 'Site', render: (row) => row.sites?.name || '-' },
       { key: 'pressure', label: 'Pressure', render: (row) => row.pressure_psi ?? '-' },
       { key: 'rc', label: 'RC', render: (row) => row.rc_ppm ?? '-' },
       { key: 'turbidity', label: 'Turbidity', render: (row) => row.turbidity_ntu ?? '-' },
@@ -535,15 +553,14 @@ export default function ReadingsScreen() {
       { key: 'tds', label: 'TDS', render: (row) => row.tds_ppm ?? '-' },
       { key: 'tank', label: 'Tank Level', render: (row) => row.tank_level_liters ?? '-' },
       { key: 'flowrate', label: 'Flowrate', render: (row) => row.flowrate_m3hr ?? '-' },
-      { key: 'totalizer', label: 'Totalizer (m3)', render: (row) => row.totalizer ?? '-' },
+      { key: 'totalizer', label: 'Totalizer', render: (row) => row.totalizer ?? '-' },
       { key: 'production', label: 'Production m3', render: (row) => formatAverageValue(row.production_m3) },
-      { key: 'power', label: 'Power Used (kWh)', render: (row) => row.chlorination_power_kwh ?? '-' },
+      { key: 'powerConsumption', label: 'Power kWh', render: (row) => row.chlorination_power_kwh ?? '-' },
       { key: 'powerYield', label: 'Power Consumed kWh', render: (row) => formatAverageValue(row.power_yield_kwh) },
       { key: 'chlorine', label: 'Chlorine Used', render: (row) => row.chlorine_consumed ?? '-' },
-      { key: 'peroxide', label: 'Peroxide', render: (row) => row.peroxide_consumption ?? '-' },
+      { key: 'peroxide', label: 'Peroxide Consumption', render: (row) => row.peroxide_consumption ?? '-' },
       { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
       { key: 'recordedBy', label: 'Recorded By', render: (row) => row.submitted_profile?.full_name || row.submitted_profile?.email || '-' },
-      { key: 'shift', label: 'Shift', render: getShiftMatchLabel },
       { key: 'remarks', label: 'Remarks', render: (row) => row.remarks || row.status || '-' },
     ],
     []
@@ -552,8 +569,8 @@ export default function ReadingsScreen() {
   const deepwellColumns = useMemo(
     () => [
       { key: 'date', label: 'Date', render: (row) => formatShortDateTime(row.slot_datetime).slice(0, 10) },
+      { key: 'shift', label: 'Shift', render: (row) => getShiftLabel(row.slot_datetime) },
       { key: 'time', label: 'Time', render: (row) => formatTimeSlot(row.slot_datetime) },
-      { key: 'site', label: 'Site', render: (row) => row.sites?.name || '-' },
       { key: 'upstream', label: 'Upstream', render: (row) => row.upstream_pressure_psi ?? '-' },
       { key: 'downstream', label: 'Downstream', render: (row) => row.downstream_pressure_psi ?? '-' },
       { key: 'flowrate', label: 'Flowrate', render: (row) => row.flowrate_m3hr ?? '-' },
@@ -563,11 +580,10 @@ export default function ReadingsScreen() {
       { key: 'l3', label: 'Volt L3', render: (row) => row.voltage_l3_v ?? '-' },
       { key: 'amps', label: 'Amperage', render: (row) => row.amperage_a ?? '-' },
       { key: 'tds', label: 'TDS', render: (row) => row.tds_ppm ?? '-' },
-      { key: 'power', label: 'Shift Power (kWh)', render: (row) => row.power_kwh_shift ?? '-' },
+      { key: 'power', label: 'Power kWh Reading', render: (row) => row.power_kwh_shift ?? '-' },
       { key: 'powerYield', label: 'Power kWh Consumed', render: (row) => formatAverageValue(row.power_yield_kwh) },
       { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
       { key: 'recordedBy', label: 'Recorded By', render: (row) => row.submitted_profile?.full_name || row.submitted_profile?.email || '-' },
-      { key: 'shift', label: 'Shift', render: getShiftMatchLabel },
       { key: 'remarks', label: 'Remarks', render: (row) => row.remarks || row.status || '-' },
     ],
     []
@@ -606,31 +622,8 @@ export default function ReadingsScreen() {
     []
   );
 
-  const allSiteColumns = useMemo(
-    () => [
-      { key: 'date', label: 'Date', render: (row) => formatShortDateTime(row.slot_datetime).slice(0, 10) },
-      { key: 'time', label: 'Time', render: (row) => formatTimeSlot(row.slot_datetime) },
-      { key: 'type', label: 'Type', render: (row) => (row.site_type === CHLORINATION ? 'Chlorination' : 'Deepwell') },
-      { key: 'site', label: 'Site', render: (row) => row.sites?.name || '-' },
-      { key: 'flowrate', label: 'Flowrate', render: (row) => row.flowrate_m3hr ?? '-' },
-      { key: 'tds', label: 'TDS', render: (row) => row.tds_ppm ?? '-' },
-      { key: 'totalizer', label: 'Totalizer (m3)', render: (row) => row.totalizer ?? '-' },
-      {
-        key: 'power',
-        label: 'Power Consumed (kWh)',
-        render: (row) => row.site_type === CHLORINATION ? row.chlorination_power_kwh ?? '-' : row.power_kwh_shift ?? '-',
-      },
-      { key: 'status', label: 'Status', render: (row) => row.status || '-' },
-      { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
-      { key: 'recordedBy', label: 'Recorded By', render: (row) => row.submitted_profile?.full_name || row.submitted_profile?.email || '-' },
-      { key: 'shift', label: 'Shift', render: getShiftMatchLabel },
-      { key: 'remarks', label: 'Remarks', render: (row) => row.remarks || row.status || '-' },
-    ],
-    []
-  );
-  const activeColumns =
-    tableMode === ALL_SITES ? allSiteColumns : tableMode === CHLORINATION ? chlorinationColumns : deepwellColumns;
-  const averageFields = tableMode === ALL_SITES ? [] : tableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
+  const activeColumns = tableMode === CHLORINATION ? chlorinationColumns : deepwellColumns;
+  const averageFields = tableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
   const filteredItems = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
@@ -710,20 +703,13 @@ export default function ReadingsScreen() {
       };
       const averagingFilters = {
         ...filters,
-        fromDate:
-          effectiveTableMode !== ALL_SITES && filters.fromDate
-            ? shiftDateValue(filters.fromDate, -1)
-            : filters.fromDate,
+        fromDate: filters.fromDate ? shiftDateValue(filters.fromDate, -1) : filters.fromDate,
       };
       const recordYieldFilters = {
         ...filters,
-        fromDate:
-          effectiveTableMode !== ALL_SITES && filters.fromDate
-            ? shiftDateValue(filters.fromDate, -1)
-            : filters.fromDate,
+        fromDate: filters.fromDate ? shiftDateValue(filters.fromDate, -1) : filters.fromDate,
       };
-      const fields =
-        effectiveTableMode === ALL_SITES ? [] : effectiveTableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
+      const fields = effectiveTableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
 
       const [nextItems, averagingItems, recordYieldItems, summaryItems] = await Promise.all([
         listReadings({ ...filters, limit: queryLimit }),
@@ -809,7 +795,7 @@ export default function ReadingsScreen() {
     appendStatusLog('loading', `Exporting ${filteredItems.length} reading record(s) as ${nextFormat.toUpperCase()}.`);
 
     try {
-      const fileBase = `nemexus-${tableMode === ALL_SITES ? 'all-sites' : tableMode.toLowerCase()}-readings-${new Date().toISOString().slice(0, 10)}`;
+      const fileBase = `nemexus-${tableMode.toLowerCase()}-readings-${new Date().toISOString().slice(0, 10)}`;
       const exportSections = [
         ...(visibleDailyAverageRows.length ? [{ name: 'Daily Averages', rows: buildTableRows(dailyAverageColumns, visibleDailyAverageRows) }] : []),
         { name: 'Detailed Readings', rows: buildTableRows(activeColumns, filteredItems) },
@@ -844,7 +830,7 @@ export default function ReadingsScreen() {
         downloadBlob(`\uFEFF${sections.join('\n\n')}`, `${fileBase}.csv`, 'text/csv;charset=utf-8;');
       }
 
-      appendStatusLog('success', `Exported ${tableMode === ALL_SITES ? 'all sites' : tableMode.toLowerCase()} readings as ${nextFormat.toUpperCase()}.`);
+      appendStatusLog('success', `Exported ${tableMode.toLowerCase()} readings as ${nextFormat.toUpperCase()}.`);
     } catch (error) {
       appendStatusLog('error', error.message || 'Failed to export readings.');
     } finally {
@@ -983,7 +969,7 @@ export default function ReadingsScreen() {
 
       <section className="panel">
         <div className="panel-heading">
-          <h3>{SITE_TYPE_OPTIONS.find((option) => option.value === tableMode)?.label || 'All sites'} records</h3>
+          <h3>{SITE_TYPE_OPTIONS.find((option) => option.value === tableMode)?.label || 'Chlorination'} records</h3>
           <span>{filteredItems.length} of {items.length} record(s)</span>
         </div>
         <div className="table-wrap readings-table-wrap">
@@ -1046,17 +1032,32 @@ export default function ReadingsScreen() {
             <button type="button" className="dialog-close-button" aria-label="Close details" onClick={() => setSelectedReading(null)}>
               <X size={18} />
             </button>
-            <div>
+            <header className="reading-detail-header">
               <p className="eyebrow">{selectedReading.site_type === CHLORINATION ? 'Chlorination' : 'Deepwell'}</p>
               <h3>{selectedReading.sites?.name || 'Reading details'}</h3>
+              <span>{formatTimeSlot(selectedReading.slot_datetime || selectedReading.reading_datetime)}</span>
+            </header>
+            <div className="reading-detail-meta">
+              <div>
+                <span>Submitted by</span>
+                <strong>{selectedReading.submitted_profile?.full_name || selectedReading.submitted_profile?.email || '-'}</strong>
+              </div>
+              <div>
+                <span>Saved</span>
+                <strong>{formatShortDateTime(selectedReading.reading_datetime || selectedReading.created_at)}</strong>
+              </div>
             </div>
-            <div className="reading-detail-grid">
+            <div className={`reading-detail-values ${selectedReading.site_type === CHLORINATION ? 'chlorination' : 'deepwell'}`}>
               {getReadingDetailFields(selectedReading).map(([label, value]) => (
                 <div key={label}>
                   <span>{label}</span>
                   <strong>{value}</strong>
                 </div>
               ))}
+            </div>
+            <div className="reading-detail-remarks">
+              <span>Remarks</span>
+              <strong>{selectedReading.remarks || '-'}</strong>
             </div>
           </section>
         </div>

@@ -49,6 +49,10 @@ function applyRawReadingFilters(query, { siteId, fromDate, toDate, limit }) {
     nextQuery = nextQuery.limit(limit);
   }
 
+  if (siteId) {
+    nextQuery = nextQuery.eq('site_id', siteId);
+  }
+
   if (fromDate) {
     const start = new Date(`${fromDate}T00:00:00`);
     nextQuery = nextQuery.gte('reading_datetime', start.toISOString());
@@ -247,6 +251,3 @@ export async function listDailySiteSummaries({ siteId, siteType, fromDate, toDat
       site_type: row?.site?.type,
     }));
 }
-  if (siteId) {
-    nextQuery = nextQuery.eq('site_id', siteId);
-  }
