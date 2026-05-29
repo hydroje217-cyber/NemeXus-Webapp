@@ -1727,14 +1727,8 @@ export default function OverviewScreen({
           }
           summaryItems={[
             {
-              label: 'Total Chlorine',
-              value: formatNumber(selectedChemicalUsage.totalChlorine),
-              hint: `${selectedChemicalUsage.year || selectedChemicalUsageYear} months`,
-              icon: Droplets,
-            },
-            {
-              label: 'Total Peroxide',
-              value: formatNumber(selectedChemicalUsage.totalPeroxide),
+              label: 'Total Chemicals',
+              value: formatNumber((selectedChemicalUsage.totalChlorine ?? 0) + (selectedChemicalUsage.totalPeroxide ?? 0)),
               hint: `${selectedChemicalUsage.year || selectedChemicalUsageYear} months`,
               icon: FlaskConical,
             },

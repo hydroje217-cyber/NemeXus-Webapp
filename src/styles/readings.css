@@ -79,7 +79,7 @@
 .readings-form-grid {
   --readings-filter-control-height: 40px;
   --readings-date-filter-width: minmax(160px, .7fr);
-  --readings-limit-filter-width: minmax(100px, .5fr);
+  --readings-limit-filter-width: minmax(170px, .65fr);
   --readings-site-filter-width: minmax(160px, .7fr);
   --readings-status-filter-width: minmax(160px, .7fr);
   --readings-search-filter-width: minmax(190px, 1fr);
@@ -108,6 +108,26 @@
 
 .readings-field.full {
   grid-column: auto;
+}
+
+.limit-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.limit-control:has(.custom-limit-input) {
+  grid-template-columns: minmax(96px, 1fr) minmax(70px, .72fr);
+}
+
+.custom-limit-input {
+  padding: 0 10px;
+}
+
+.custom-limit-input input {
+  color: #17212c;
+  text-align: right;
 }
 
 .readings-search-row {
@@ -172,11 +192,18 @@
 }
 
 .select-with-icon select {
+  border-color: transparent;
+  box-shadow: none;
   color: #17212c;
 }
 
 .select-with-icon select:focus {
   outline: 0;
+}
+
+.select-with-icon select option {
+  background: #ffffff;
+  color: #17212c;
 }
 
 .readings-search-row .input-with-icon {
@@ -384,6 +411,15 @@
 
 .readings-table-wrap tr:nth-child(even) td {
   background: #f7fbfc;
+}
+
+.readings-table-wrap tr.selected-row td,
+.readings-table-wrap tr.selected-row:nth-child(even) td {
+  background: #dff8fb;
+}
+
+.readings-table-wrap tr.selected-row td:first-child {
+  box-shadow: inset 4px 0 0 #17a5b4;
 }
 
 .readings-table-wrap td {

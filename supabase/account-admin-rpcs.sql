@@ -57,6 +57,16 @@ begin
     ) then
       alter publication supabase_realtime add table public.profiles;
     end if;
+
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'account_login_logs'
+    ) then
+      alter publication supabase_realtime add table public.account_login_logs;
+    end if;
   end if;
 end $$;
 

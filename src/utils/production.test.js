@@ -60,8 +60,14 @@ describe('yearly production analytics', () => {
   it('stops monthly power consumption at the latest chlorination or deepwell reading month', () => {
     const years = buildMonthlyPowerConsumptionYears(
       {
-        chlorinationReadings: [reading('2026-03-10', { chlorination_power_kwh: 12 })],
-        deepwellReadings: [reading('2026-05-04', { power_kwh_shift: 20 })],
+        chlorinationReadings: [
+          reading('2026-03-09', { slot_datetime: '2026-03-09T23:00:00.000Z', chlorination_power_kwh: 100 }),
+          reading('2026-03-10', { chlorination_power_kwh: 112 }),
+        ],
+        deepwellReadings: [
+          reading('2026-05-03', { slot_datetime: '2026-05-03T23:00:00.000Z', power_kwh_shift: 200 }),
+          reading('2026-05-04', { power_kwh_shift: 220 }),
+        ],
       },
       { now: new Date(2026, 4, 13) }
     );

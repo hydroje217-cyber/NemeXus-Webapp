@@ -10,7 +10,6 @@ import {
   buildMonthlyPowerConsumptionYears,
   buildMonthlyProduction,
   buildMonthlyProductionYears,
-  startOfYearlyAnalyticsSourceIso,
 } from '../utils/production';
 import { enrichReadingsWithInferredShiftOwnership } from '../utils/shifts';
 
@@ -33,7 +32,7 @@ const LOGIN_LOG_SELECT =
   'id, user_id, email, role, browser, device, user_agent, created_at, profile:profiles(full_name, email)';
 const LOGIN_LOG_FALLBACK_SELECT = 'id, user_id, email, role, browser, device, user_agent, created_at';
 const LEGACY_LOGIN_LOG_SELECT = 'id, profile_id, email, full_name, role, logged_in_at, user_agent';
-const ANALYTICS_RAW_READING_LIMIT = 5000;
+const ANALYTICS_YEAR_COUNT = 2;
 
 function startOfTodayIso() {
   const now = new Date();
@@ -101,14 +100,34 @@ function normalizeRawReading(row, siteType) {
   );
 }
 
-async function queryRawReadings({ table, select, fallbackSelect, siteType, fromIso, limit }) {
-  const query = (selectClause) =>
-    supabase
+async function queryRawReadings({
+  table,
+  select,
+  fallbackSelect,
+  siteType,
+  fromIso,
+  toIso,
+  filterColumn = 'slot_datetime',
+  ascending = false,
+  limit,
+}) {
+  const query = (selectClause) => {
+    let nextQuery = supabase
       .from(table)
       .select(selectClause)
-      .gte('slot_datetime', fromIso)
-      .order('slot_datetime', { ascending: false })
-      .limit(limit);
+      .gte(filterColumn, fromIso)
+      .order(filterColumn, { ascending });
+
+    if (toIso) {
+      nextQuery = nextQuery.lt(filterColumn, toIso);
+    }
+
+    if (typeof limit === 'number' && Number.isFinite(limit)) {
+      nextQuery = nextQuery.limit(limit);
+    }
+
+    return nextQuery;
+  };
   let result = await query(select);
 
   if (result.error && fallbackSelect) {
@@ -122,7 +141,7 @@ async function queryRawReadings({ table, select, fallbackSelect, siteType, fromI
   return (result.data ?? []).map((row) => normalizeRawReading(row, siteType));
 }
 
-async function loadRawReadings({ fromIso, limit }) {
+async function loadRawReadings({ fromIso, toIso, filterColumn, ascending, limit }) {
   const [chlorinationReadings, deepwellReadings] = await Promise.all([
     queryRawReadings({
       table: 'chlorination_readings',
@@ -130,6 +149,9 @@ async function loadRawReadings({ fromIso, limit }) {
       fallbackSelect: CHLORINATION_READING_FALLBACK_SELECT,
       siteType: 'CHLORINATION',
       fromIso,
+      toIso,
+      filterColumn,
+      ascending,
       limit,
     }),
     queryRawReadings({
@@ -138,6 +160,9 @@ async function loadRawReadings({ fromIso, limit }) {
       fallbackSelect: DEEPWELL_READING_FALLBACK_SELECT,
       siteType: 'DEEPWELL',
       fromIso,
+      toIso,
+      filterColumn,
+      ascending,
       limit,
     }),
   ]);
@@ -147,6 +172,21 @@ async function loadRawReadings({ fromIso, limit }) {
 
 async function loadRecentRawReadings({ fromIso, limit }) {
   return (await loadRawReadings({ fromIso, limit })).slice(0, limit * 2);
+}
+
+function getAnalyticsSourceRange({ now = new Date(), yearCount = ANALYTICS_YEAR_COUNT } = {}) {
+  const startYear = now.getFullYear() - yearCount + 1;
+  const yearStart = new Date(startYear, 0, 1);
+  const previousDayStart = new Date(startYear, 0, 0);
+  const nextYearStart = new Date(now.getFullYear() + 1, 0, 1);
+  const yearEnd = new Date(now.getFullYear(), 11, 31);
+
+  return {
+    readingFromIso: previousDayStart.toISOString(),
+    readingToIso: nextYearStart.toISOString(),
+    summaryFromDate: `${yearStart.getFullYear()}-01-01`,
+    summaryToDate: `${yearEnd.getFullYear()}-12-31`,
+  };
 }
 
 function sortByCreatedAtDesc(a, b) {
@@ -481,7 +521,7 @@ export async function updateProfileEmail(profileId, email) {
 export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const todayIso = startOfTodayIso();
   const checkpointFromIso = new Date(new Date(todayIso).getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const analyticsFromIso = startOfYearlyAnalyticsSourceIso();
+  const analyticsRange = getAnalyticsSourceRange();
 
   const [
     pendingApprovals,
@@ -536,9 +576,15 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     supabase
       .from('daily_site_summaries')
       .select(DAILY_SUMMARY_SELECT)
-      .gte('summary_date', analyticsFromIso.slice(0, 10))
+      .gte('summary_date', analyticsRange.summaryFromDate)
+      .lte('summary_date', analyticsRange.summaryToDate)
       .order('summary_date', { ascending: true }),
-    loadRawReadings({ fromIso: analyticsFromIso, limit: ANALYTICS_RAW_READING_LIMIT }),
+    loadRawReadings({
+      fromIso: analyticsRange.readingFromIso,
+      toIso: analyticsRange.readingToIso,
+      filterColumn: 'reading_datetime',
+      ascending: true,
+    }),
   ]);
 
   throwIfError(pendingApprovals, 'Failed to load pending approvals.');
@@ -559,12 +605,9 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const recentReadings = enrichReadingsWithInferredShiftOwnership(
     recentRawReadings.length ? recentRawReadings : recentSummaryRows
   );
-  const monthlyRows = mergeSummaryAndRawRows(
-    (monthlySummaries.data ?? []).map(normalizeDailySummary),
-    createRawDailySummaryRows(analyticsRawReadings)
-  );
-  const monthlyChlorination = monthlyRows.filter((row) => row.site_type === 'CHLORINATION');
-  const monthlyDeepwell = monthlyRows.filter((row) => row.site_type === 'DEEPWELL');
+  const dailySummaries = monthlySummaries.data ?? [];
+  const monthlyChlorination = analyticsRawReadings.filter((row) => row.site_type === 'CHLORINATION');
+  const monthlyDeepwell = analyticsRawReadings.filter((row) => row.site_type === 'DEEPWELL');
 
   return {
     stats: {
@@ -579,25 +622,25 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     profiles: (profiles.data ?? []).map(normalizeProfile),
     loginLogs: (loginLogs.data ?? []).map(normalizeLoginLog),
     operators: (operators.data ?? []).map(normalizeProfile),
-    monthlyProduction: buildMonthlyProduction(monthlyChlorination),
-    monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination),
-    dailyProduction: buildDailyProduction(monthlyChlorination),
-    dailyProductionMonths: buildDailyProductionMonths(monthlyChlorination),
-    dailyProductionYears: buildDailyProductionYears(monthlyChlorination),
-    monthlyChemicalUsage: buildMonthlyChemicalUsage(monthlyChlorination),
-    monthlyChemicalUsageYears: buildMonthlyChemicalUsageYears(monthlyChlorination),
+    monthlyProduction: buildMonthlyProduction(monthlyChlorination, { dailySummaries }),
+    monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination, { dailySummaries }),
+    dailyProduction: buildDailyProduction(monthlyChlorination, { dailySummaries }),
+    dailyProductionMonths: buildDailyProductionMonths(monthlyChlorination, { dailySummaries }),
+    dailyProductionYears: buildDailyProductionYears(monthlyChlorination, { dailySummaries }),
+    monthlyChemicalUsage: buildMonthlyChemicalUsage(monthlyChlorination, { dailySummaries }),
+    monthlyChemicalUsageYears: buildMonthlyChemicalUsageYears(monthlyChlorination, { dailySummaries }),
     monthlyPowerConsumption: buildMonthlyPowerConsumption({
       chlorinationReadings: monthlyChlorination,
       deepwellReadings: monthlyDeepwell,
-    }),
+    }, { dailySummaries }),
     monthlyPowerConsumptionYears: buildMonthlyPowerConsumptionYears({
       chlorinationReadings: monthlyChlorination,
       deepwellReadings: monthlyDeepwell,
-    }),
+    }, { dailySummaries }),
     dailyPowerConsumption: buildDailyPowerConsumption({
       chlorinationReadings: monthlyChlorination,
       deepwellReadings: monthlyDeepwell,
-    }),
+    }, { dailySummaries }),
   };
 }
 

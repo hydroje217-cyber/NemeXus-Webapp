@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, CalendarDays, ChevronDown, ChevronUp, Eye, FileText, Filter, Grid2X2, List, Search, X } from 'lucide-react';
-import { listReadings } from '../services/readings';
-import { aggregateDailyRows } from '../utils/production';
+import { listDailySiteSummaries, listReadings } from '../services/readings';
+import { addShiftYieldToRows, addSlotProductionToRows, aggregateDailyRows } from '../utils/production';
 
 const CHLORINATION = 'CHLORINATION';
 const DEEPWELL = 'DEEPWELL';
 const ALL_SITES = 'all';
 const DEFAULT_LIMIT = '50';
 const NO_LIMIT = 'all';
+const CUSTOM_LIMIT = 'custom';
+const DEFAULT_CUSTOM_LIMIT = '500';
 const PAGE_SIZE = 25;
+const STATUS_LOG_LIMIT = 2;
 const SITE_TYPE_OPTIONS = [
   { value: ALL_SITES, label: 'All sites' },
   { value: CHLORINATION, label: 'Chlorination' },
@@ -20,8 +23,36 @@ const LIMIT_OPTIONS = [
   { value: '50', label: '50' },
   { value: '100', label: '100' },
   { value: '200', label: '200' },
+  { value: CUSTOM_LIMIT, label: 'Other' },
   { value: NO_LIMIT, label: 'No limit' },
 ];
+const SUMMARY_FIELD_MAP = {
+  [CHLORINATION]: {
+    pressure: 'avg_pressure_psi',
+    rc: 'avg_rc_ppm',
+    turbidity: 'avg_turbidity_ntu',
+    ph: 'avg_ph',
+    tds: 'avg_tds_ppm',
+    flowrate: 'avg_flowrate_m3hr',
+    production: 'production_m3',
+    powerConsumption: 'power_kwh',
+    chlorine: 'chlorine_kg',
+    peroxide: 'peroxide_liters',
+  },
+  [DEEPWELL]: {
+    upstream: 'avg_upstream_pressure_psi',
+    downstream: 'avg_downstream_pressure_psi',
+    flowrate: 'avg_flowrate_m3hr',
+    frequency: 'avg_vfd_frequency_hz',
+    l1: 'avg_voltage_l1_v',
+    l2: 'avg_voltage_l2_v',
+    l3: 'avg_voltage_l3_v',
+    amps: 'avg_amperage_a',
+    tds: 'avg_tds_ppm',
+    power: 'power_kwh',
+  },
+};
+const SUMMARY_TOTAL_KEYS = new Set(['production', 'powerConsumption', 'power', 'chlorine', 'peroxide']);
 
 function formatDateInputValue(date) {
   const year = date.getFullYear();
@@ -115,12 +146,82 @@ function shiftDateValue(value, amount) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function getQueryLimit(value) {
+function getQueryLimit(value, customValue = DEFAULT_CUSTOM_LIMIT) {
   if (value === NO_LIMIT) {
     return undefined;
   }
 
-  return Math.min(200, Math.max(1, Number(value) || Number(DEFAULT_LIMIT)));
+  const nextValue = value === CUSTOM_LIMIT ? customValue : value;
+  return Math.max(1, Number(nextValue) || Number(DEFAULT_LIMIT));
+}
+
+function parseNumber(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function buildDailyRowsFromSummaries(summaries, fields, siteType) {
+  const fieldMap = SUMMARY_FIELD_MAP[siteType] || {};
+  const grouped = summaries.reduce((map, summary) => {
+    const date = String(summary.summary_date || '').slice(0, 10);
+    if (!date) {
+      return map;
+    }
+
+    const current = map.get(date) || [];
+    current.push(summary);
+    map.set(date, current);
+    return map;
+  }, new Map());
+
+  return Array.from(grouped.entries()).map(([date, rows]) => {
+    const result = {
+      id: `summary:${date}`,
+      date,
+    };
+
+    fields.forEach((field) => {
+      const summaryField = fieldMap[field.key];
+      if (!summaryField) {
+        return;
+      }
+
+      const values = rows.map((row) => parseNumber(row[summaryField])).filter((value) => value !== null);
+      if (!values.length) {
+        return;
+      }
+
+      const total = values.reduce((sum, value) => sum + value, 0);
+      result[field.key] = SUMMARY_TOTAL_KEYS.has(field.key) ? total : total / values.length;
+    });
+
+    return result;
+  });
+}
+
+function mergeDailyAverageRows(rawRows, summaryRows) {
+  const merged = new Map(rawRows.map((row) => [row.date, row]));
+
+  summaryRows.forEach((summaryRow) => {
+    const existingRow = merged.get(summaryRow.date) || { id: summaryRow.id, date: summaryRow.date };
+    const nextRow = { ...existingRow };
+
+    Object.entries(summaryRow).forEach(([key, value]) => {
+      if (key === 'id' || key === 'date' || value === null || value === undefined || value === '') {
+        return;
+      }
+
+      nextRow[key] = value;
+    });
+
+    merged.set(summaryRow.date, nextRow);
+  });
+
+  return Array.from(merged.values());
 }
 
 function downloadBlob(content, fileName, type) {
@@ -155,6 +256,10 @@ function sortRowsByDateDesc(rows) {
   return [...rows].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 }
 
+function getReadingRowKey(row) {
+  return `${row.site_type}-${row.id}`;
+}
+
 function getReadingSearchText(row) {
   return [
     row.sites?.name,
@@ -175,7 +280,7 @@ function getShiftMatchLabel(row) {
   const match = row?.shift_match;
 
   if (!match?.shift) {
-    return row?.is_daily_summary ? 'Daily summary' : '-';
+    return '-';
   }
 
   const operator = match.operator?.name || 'Waiting for first reading';
@@ -215,8 +320,8 @@ function getReadingDetailFields(row) {
           ['TDS', row.tds_ppm ?? '-'],
           ['Tank level', row.tank_level_liters ?? '-'],
           ['Flowrate', row.flowrate_m3hr ?? '-'],
-          ['Totalizer', row.totalizer ?? '-'],
-          ['Power kWh', row.chlorination_power_kwh ?? '-'],
+          ['Totalizer (m3)', row.totalizer ?? '-'],
+          ['Power used (kWh)', row.chlorination_power_kwh ?? '-'],
           ['Chlorine used', row.chlorine_consumed ?? '-'],
           ['Peroxide', row.peroxide_consumption ?? '-'],
         ]
@@ -230,7 +335,7 @@ function getReadingDetailFields(row) {
           ['Voltage L3', row.voltage_l3_v ?? '-'],
           ['Amperage', row.amperage_a ?? '-'],
           ['TDS', row.tds_ppm ?? '-'],
-          ['Power kWh', row.power_kwh_shift ?? '-'],
+          ['Shift power (kWh)', row.power_kwh_shift ?? '-'],
         ];
 
   return [...sharedFields, ...typeFields];
@@ -391,10 +496,12 @@ export default function ReadingsScreen() {
   const [fromDate, setFromDate] = useState(initialDateRange.fromDate);
   const [toDate, setToDate] = useState(initialDateRange.toDate);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
+  const [customLimit, setCustomLimit] = useState(DEFAULT_CUSTOM_LIMIT);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedReading, setSelectedReading] = useState(null);
+  const [selectedReadingKey, setSelectedReadingKey] = useState('');
   const [items, setItems] = useState([]);
   const [dailyAverageRows, setDailyAverageRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -413,7 +520,7 @@ export default function ReadingsScreen() {
         time: formatLogTime(new Date()),
       },
       ...currentLogs,
-    ].slice(0, 6));
+    ].slice(0, STATUS_LOG_LIMIT));
   }, []);
 
   const chlorinationColumns = useMemo(
@@ -428,8 +535,10 @@ export default function ReadingsScreen() {
       { key: 'tds', label: 'TDS', render: (row) => row.tds_ppm ?? '-' },
       { key: 'tank', label: 'Tank Level', render: (row) => row.tank_level_liters ?? '-' },
       { key: 'flowrate', label: 'Flowrate', render: (row) => row.flowrate_m3hr ?? '-' },
-      { key: 'totalizer', label: 'Totalizer', render: (row) => row.totalizer ?? '-' },
-      { key: 'power', label: 'Power kWh', render: (row) => row.chlorination_power_kwh ?? '-' },
+      { key: 'totalizer', label: 'Totalizer (m3)', render: (row) => row.totalizer ?? '-' },
+      { key: 'production', label: 'Production m3', render: (row) => formatAverageValue(row.production_m3) },
+      { key: 'power', label: 'Power Used (kWh)', render: (row) => row.chlorination_power_kwh ?? '-' },
+      { key: 'powerYield', label: 'Power Consumed kWh', render: (row) => formatAverageValue(row.power_yield_kwh) },
       { key: 'chlorine', label: 'Chlorine Used', render: (row) => row.chlorine_consumed ?? '-' },
       { key: 'peroxide', label: 'Peroxide', render: (row) => row.peroxide_consumption ?? '-' },
       { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
@@ -454,7 +563,8 @@ export default function ReadingsScreen() {
       { key: 'l3', label: 'Volt L3', render: (row) => row.voltage_l3_v ?? '-' },
       { key: 'amps', label: 'Amperage', render: (row) => row.amperage_a ?? '-' },
       { key: 'tds', label: 'TDS', render: (row) => row.tds_ppm ?? '-' },
-      { key: 'power', label: 'Power kWh', render: (row) => row.power_kwh_shift ?? '-' },
+      { key: 'power', label: 'Shift Power (kWh)', render: (row) => row.power_kwh_shift ?? '-' },
+      { key: 'powerYield', label: 'Power kWh Consumed', render: (row) => formatAverageValue(row.power_yield_kwh) },
       { key: 'recordedAt', label: 'Recorded At', render: (row) => formatShortDateTime(row.reading_datetime) },
       { key: 'recordedBy', label: 'Recorded By', render: (row) => row.submitted_profile?.full_name || row.submitted_profile?.email || '-' },
       { key: 'shift', label: 'Shift', render: getShiftMatchLabel },
@@ -472,8 +582,8 @@ export default function ReadingsScreen() {
       { key: 'tds', field: 'tds_ppm', label: 'AVG TDS (PPM)' },
       { key: 'tank', field: 'tank_level_liters', label: 'AVG TANK LEVEL (L)' },
       { key: 'flowrate', field: 'flowrate_m3hr', label: 'AVG FLOWRATE (M3/HR)' },
-      { key: 'totalizer', field: 'totalizer', label: 'TOTALIZER', aggregate: 'previousDayDifference' },
-      { key: 'power', field: 'chlorination_power_kwh', label: 'POWER CONSUMPTION (KWH)', aggregate: 'previousDayDifference' },
+      { key: 'production', field: 'totalizer', label: 'PRODUCTION (M3)', aggregate: 'slotProductionTotal' },
+      { key: 'powerConsumption', field: 'chlorination_power_kwh', label: 'POWER CONSUMPTION (KWH)', aggregate: 'shiftYieldTotal' },
       { key: 'chlorine', field: 'chlorine_consumed', label: 'AVG CHLORINE USED (KG)' },
       { key: 'peroxide', field: 'peroxide_consumption', label: 'AVG PEROXIDE CONSUMPTION' },
     ],
@@ -491,7 +601,7 @@ export default function ReadingsScreen() {
       { key: 'l3', field: 'voltage_l3_v', label: 'AVG VOLTAGE L3 (V)' },
       { key: 'amps', field: 'amperage_a', label: 'AVG AMPERAGE (A)' },
       { key: 'tds', field: 'tds_ppm', label: 'AVG TDS (PPM)' },
-      { key: 'power', field: 'power_kwh_shift', label: 'POWER CONSUMPTION (KWH)', aggregate: 'previousDayDifference' },
+      { key: 'power', field: 'power_kwh_shift', label: 'POWER CONSUMPTION (KWH)', aggregate: 'shiftYieldTotal' },
     ],
     []
   );
@@ -504,10 +614,10 @@ export default function ReadingsScreen() {
       { key: 'site', label: 'Site', render: (row) => row.sites?.name || '-' },
       { key: 'flowrate', label: 'Flowrate', render: (row) => row.flowrate_m3hr ?? '-' },
       { key: 'tds', label: 'TDS', render: (row) => row.tds_ppm ?? '-' },
-      { key: 'totalizer', label: 'Totalizer', render: (row) => row.totalizer ?? '-' },
+      { key: 'totalizer', label: 'Totalizer (m3)', render: (row) => row.totalizer ?? '-' },
       {
         key: 'power',
-        label: 'Power kWh',
+        label: 'Power Consumed (kWh)',
         render: (row) => row.site_type === CHLORINATION ? row.chlorination_power_kwh ?? '-' : row.power_kwh_shift ?? '-',
       },
       { key: 'status', label: 'Status', render: (row) => row.status || '-' },
@@ -558,6 +668,12 @@ export default function ReadingsScreen() {
     [averageFields]
   );
 
+  function openReadingDetails(row) {
+    setSelectedReading(row);
+    setSelectedReadingKey(getReadingRowKey(row));
+    appendStatusLog('info', `Opened details for ${row.sites?.name || 'reading'} recorded ${formatShortDateTime(row.reading_datetime)}.`);
+  }
+
   async function loadHistory(nextFilters = {}) {
     const requestId = loadRequestRef.current + 1;
     loadRequestRef.current = requestId;
@@ -567,7 +683,8 @@ export default function ReadingsScreen() {
     const effectiveFromDate = nextFilters.fromDate ?? fromDate;
     const effectiveToDate = nextFilters.toDate ?? toDate;
     const effectiveLimit = nextFilters.limit ?? limit;
-    const queryLimit = getQueryLimit(effectiveLimit);
+    const effectiveCustomLimit = nextFilters.customLimit ?? customLimit;
+    const queryLimit = getQueryLimit(effectiveLimit, effectiveCustomLimit);
     const effectiveSiteLabel = SITE_TYPE_OPTIONS.find((option) => option.value === effectiveTableMode)?.label || 'All sites';
 
     appendStatusLog(
@@ -594,29 +711,52 @@ export default function ReadingsScreen() {
       const averagingFilters = {
         ...filters,
         fromDate:
-          effectiveTableMode === CHLORINATION && filters.fromDate
+          effectiveTableMode !== ALL_SITES && filters.fromDate
+            ? shiftDateValue(filters.fromDate, -1)
+            : filters.fromDate,
+      };
+      const recordYieldFilters = {
+        ...filters,
+        fromDate:
+          effectiveTableMode !== ALL_SITES && filters.fromDate
             ? shiftDateValue(filters.fromDate, -1)
             : filters.fromDate,
       };
       const fields =
         effectiveTableMode === ALL_SITES ? [] : effectiveTableMode === CHLORINATION ? chlorinationAverageFields : deepwellAverageFields;
 
-      const [nextItems, averagingItems] = await Promise.all([
+      const [nextItems, averagingItems, recordYieldItems, summaryItems] = await Promise.all([
         listReadings({ ...filters, limit: queryLimit }),
-        fields.length ? listReadings({ ...averagingFilters }) : Promise.resolve([]),
+        fields.length ? listReadings({ ...averagingFilters, includeAll: true }) : Promise.resolve([]),
+        fields.length ? listReadings({ ...recordYieldFilters, includeAll: true }) : Promise.resolve([]),
+        fields.length ? listDailySiteSummaries({ ...filters, includeAll: true }) : Promise.resolve([]),
       ]);
-      const averageRows = fields.length
+      const computedRecordItems =
+        effectiveTableMode === CHLORINATION
+          ? addSlotProductionToRows(
+              addShiftYieldToRows(recordYieldItems, 'chlorination_power_kwh', 'power_yield_kwh'),
+              'totalizer',
+              'production_m3'
+            )
+          : effectiveTableMode === DEEPWELL
+            ? addShiftYieldToRows(recordYieldItems, 'power_kwh_shift', 'power_yield_kwh')
+            : nextItems;
+      const computedRecordMap = new Map(computedRecordItems.map((item) => [item.id, item]));
+      const itemsWithComputedValues = nextItems.map((item) => computedRecordMap.get(item.id) || item);
+      const rawAverageRows = fields.length
         ? aggregateDailyRows(averagingItems, fields, {
             visibleFromDate: filters.fromDate,
             visibleToDate: filters.toDate,
           })
         : [];
+      const summaryAverageRows = fields.length ? buildDailyRowsFromSummaries(summaryItems, fields, effectiveTableMode) : [];
+      const averageRows = fields.length ? mergeDailyAverageRows(rawAverageRows, summaryAverageRows) : [];
 
       if (loadRequestRef.current !== requestId) {
         return;
       }
 
-      setItems(nextItems);
+      setItems(itemsWithComputedValues);
       setDailyAverageRows(averageRows);
       setCurrentPage(1);
       appendStatusLog(
@@ -644,7 +784,7 @@ export default function ReadingsScreen() {
     }, 250);
 
     return () => window.clearTimeout(loadTimer);
-  }, [fromDate, toDate, limit, tableMode]);
+  }, [fromDate, toDate, limit, customLimit, tableMode]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -743,13 +883,29 @@ export default function ReadingsScreen() {
 
           <label className="readings-field limit-field">
             <span>Limit</span>
-            <div className="select-with-icon">
-              <List size={17} />
-              <select value={limit} onChange={(event) => setLimit(event.target.value)}>
-                {LIMIT_OPTIONS.map((option) => (
-                  <option value={option.value} key={option.value}>{option.label}</option>
-                ))}
-              </select>
+            <div className="limit-control">
+              <div className="select-with-icon">
+                <List size={17} />
+                <select value={limit} onChange={(event) => setLimit(event.target.value)}>
+                  {LIMIT_OPTIONS.map((option) => (
+                    <option value={option.value} key={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+              {limit === CUSTOM_LIMIT ? (
+                <div className="input-with-icon custom-limit-input">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    step="1"
+                    value={customLimit}
+                    aria-label="Custom reading limit"
+                    onChange={(event) => setCustomLimit(event.target.value)}
+                    onBlur={() => setCustomLimit(String(getQueryLimit(CUSTOM_LIMIT, customLimit)))}
+                  />
+                </div>
+              ) : null}
             </div>
           </label>
 
@@ -843,16 +999,17 @@ export default function ReadingsScreen() {
             <tbody>
               {visibleItems.length ? (
                 visibleItems.map((row) => (
-                  <tr key={`${row.site_type}-${row.id}`}>
+                  <tr
+                    className={selectedReadingKey === getReadingRowKey(row) ? 'selected-row' : undefined}
+                    aria-selected={selectedReadingKey === getReadingRowKey(row)}
+                    key={getReadingRowKey(row)}
+                  >
                     <td>
                       <button
                         type="button"
                         className="table-icon-button"
                         aria-label="View reading details"
-                        onClick={() => {
-                          setSelectedReading(row);
-                          appendStatusLog('info', `Opened details for ${row.sites?.name || 'reading'} recorded ${formatShortDateTime(row.reading_datetime)}.`);
-                        }}
+                        onClick={() => openReadingDetails(row)}
                       >
                         <Eye size={16} />
                       </button>

@@ -121,6 +121,23 @@
   color: #17212c;
 }
 
+.dark-mode .select-with-icon select {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: #e9f2f4;
+}
+
+.dark-mode .select-with-icon select option {
+  background: #0f1b25;
+  color: #e9f2f4;
+}
+
+.dark-mode .custom-limit-input input {
+  background: transparent;
+  color: #e9f2f4;
+}
+
 .dark-mode input::placeholder {
   color: #8fa9b3;
 }
@@ -621,6 +638,33 @@
 
 .dark-mode .readings-table-wrap tr:nth-child(even) td {
   background: #101b25;
+}
+
+.dark-mode .readings-table-wrap .table-icon-button {
+  background: #132230;
+  border-color: #2d4654;
+  color: #79dbe6;
+}
+
+.dark-mode .readings-table-wrap .table-icon-button:hover {
+  background: #173342;
+  border-color: #35c8d6;
+  color: #b8f7ff;
+}
+
+.dark-mode .readings-table-wrap tr.selected-row td,
+.dark-mode .readings-table-wrap tr.selected-row:nth-child(even) td {
+  background: #164655;
+}
+
+.dark-mode .readings-table-wrap tr.selected-row td:first-child {
+  box-shadow: inset 4px 0 0 #35c8d6;
+}
+
+.dark-mode .readings-table-wrap tr.selected-row .table-icon-button {
+  background: #dffbff;
+  border-color: #6ee7f2;
+  color: #0f7c87;
 }
 
 .dark-mode .badge {
