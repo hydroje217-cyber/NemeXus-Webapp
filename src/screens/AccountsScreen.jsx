@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { Briefcase, Eye, EyeOff, KeyRound, ShieldCheck, Trash2, UserCog, Users, X } from 'lucide-react';
 import { formatRoleLabel, GENERAL_MANAGER_ROLE, normalizeRole } from '../services/dashboard';
 
-const ROLE_OPTIONS = ['operator', 'supervisor', 'manager', GENERAL_MANAGER_ROLE, 'admin'];
+const TEST_OPERATOR_ROLE = 'test_operator';
+const ROLE_OPTIONS = ['operator', TEST_OPERATOR_ROLE, 'supervisor', 'manager', GENERAL_MANAGER_ROLE, 'admin'];
 const ACCOUNT_FILTERS = [
   { key: 'all', label: 'All', icon: Users },
   { key: 'operator', label: 'Operators', icon: UserCog },
+  { key: TEST_OPERATOR_ROLE, label: 'Test Operators', icon: UserCog },
   { key: 'supervisor', label: 'Supervisors', icon: ShieldCheck },
   { key: 'manager', label: 'Managers', icon: Briefcase },
   { key: GENERAL_MANAGER_ROLE, label: 'General Managers', icon: Briefcase },
@@ -90,7 +92,7 @@ export default function AccountsScreen({
 
   return (
     <section className="panel">
-      <div className="panel-heading">
+      <div className="panel-heading account-panel-heading">
         <div className="account-heading-main">
           <h3>Account Roles</h3>
           <div className="account-filter-row" aria-label="Filter accounts">

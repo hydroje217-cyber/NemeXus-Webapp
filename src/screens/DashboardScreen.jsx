@@ -15,9 +15,11 @@ import {
   LogOut,
   Menu,
   Moon,
+  MoreVertical,
   Pencil,
   RefreshCw,
   Sun,
+  Trash2,
   Users,
   X,
   Zap,
@@ -27,6 +29,14 @@ import ApprovalsScreen from './ApprovalsScreen';
 import LoginLogsScreen from './LoginLogsScreen';
 import OverviewScreen, { buildOperationAlerts } from './OverviewScreen';
 import ReadingsScreen from './ReadingsScreen';
+import { formatRoleLabel } from '../services/dashboard';
+import {
+  loadNotificationDismissedKeys,
+  loadNotificationReadKeys,
+  saveNotificationDismissedKeys,
+  saveNotificationReadKeys,
+  saveNotificationUnreadCount,
+} from '../utils/notificationState';
 
 function titleize(value) {
   if (value === 'login-logs') {
@@ -59,6 +69,29 @@ function formatLastUpdated(value) {
   })}`;
 }
 
+function getInitials(name, email = '') {
+  const source = (name || email || 'User').trim();
+  const words = source
+    .replace(/@.*/, '')
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!words.length) {
+    return 'U';
+  }
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+}
+
+function getFirstName(name, email = '') {
+  const source = (name || email || 'User').trim().replace(/@.*/, '');
+  return source.split(/\s+/).filter(Boolean)[0] || 'User';
+}
+
 function formatLoginTime(value) {
   if (!value) {
     return 'recently';
@@ -77,6 +110,116 @@ function formatLoginTime(value) {
   });
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return '-';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  return parsed.toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatRelativeTime(value) {
+  if (!value) {
+    return 'just now';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'just now';
+  }
+
+  const seconds = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000));
+  if (seconds < 60) {
+    return 'just now';
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) {
+    return `${days}d ago`;
+  }
+
+  return parsed.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function getNotificationTimestamp(alert) {
+  return alert?.timestamp || alert?.created_at || null;
+}
+
+function getNotificationSortTime(alert) {
+  const timestamp = getNotificationTimestamp(alert);
+  const parsed = timestamp ? new Date(timestamp) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed.getTime() : 0;
+}
+
+function formatReadingDetailValue(value, unit = '') {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+
+  return unit ? `${value} ${unit}` : String(value);
+}
+
+function formatReadingSlotLabel(value) {
+  if (!value) {
+    return '-';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  return `${String(parsed.getHours()).padStart(2, '0')}${String(parsed.getMinutes()).padStart(2, '0')}H`;
+}
+
+function getReadingSiteName(reading) {
+  return reading?.site?.name || reading?.sites?.name || (reading?.site_type === 'DEEPWELL' ? 'Deepwell reading' : 'Chlorination reading');
+}
+
+function getReadingOperatorName(reading) {
+  return reading?.submitted_profile?.full_name || reading?.submitted_profile?.email || '-';
+}
+
+function getReadingDetailFields(reading) {
+  if (!reading) {
+    return [];
+  }
+
+  const readingType = String(reading.site_type || reading.site?.type || '').toLowerCase();
+  const fields = readingType === 'deepwell' ? DEEPWELL_READING_FIELDS : CHLORINATION_READING_FIELDS;
+  return fields
+    .filter(({ key }) => reading[key] !== null && reading[key] !== undefined && reading[key] !== '')
+    .map((field) => [
+      field.key,
+      field.label,
+      formatReadingDetailValue(reading[field.key], field.unit),
+    ]);
+}
+
 function buildLoginNotification(profile, session, isOnline) {
   if (!session?.user) {
     return null;
@@ -91,7 +234,26 @@ function buildLoginNotification(profile, session, isOnline) {
     severity: 'info',
     title: 'User logged in',
     detail: `${userName} logged in at ${formatLoginTime(loginTime)} and is ${onlineStatus}.`,
+    timestamp: loginTime,
   };
+}
+
+function buildLoginLogNotifications(loginLogs = []) {
+  return loginLogs.slice(0, 10).map((log) => {
+    const loginTime = log.logged_in_at || log.created_at;
+    const userName = log.full_name || log.email || 'User';
+    const roleLabel = formatRoleLabel(log.role) || 'user';
+
+    return {
+      key: `login-log-${log.id || `${log.email || userName}-${loginTime || ''}`}`,
+      severity: 'info',
+      title: userName,
+      detail: `${roleLabel} logged in at ${formatLoginTime(loginTime)}.`,
+      timestamp: loginTime,
+      targetView: 'login-logs',
+      loginLogId: log.id,
+    };
+  });
 }
 
 function getTabs(isAdmin) {
@@ -138,6 +300,35 @@ const NOTIFICATION_SEVERITY_LABELS = {
   warning: 'Warning',
   info: 'Info',
 };
+const ACTIVE_PRESENCE_WINDOW_MS = 2 * 60 * 1000;
+const MAX_FLOATING_ACTIVE_USERS = 5;
+
+const CHLORINATION_READING_FIELDS = [
+  { key: 'totalizer', label: 'Totalizer' },
+  { key: 'pressure_psi', label: 'Pressure', unit: 'psi' },
+  { key: 'rc_ppm', label: 'RC', unit: 'ppm' },
+  { key: 'turbidity_ntu', label: 'Turbidity', unit: 'NTU' },
+  { key: 'ph', label: 'pH' },
+  { key: 'tds_ppm', label: 'TDS', unit: 'ppm' },
+  { key: 'tank_level_liters', label: 'Tank level', unit: 'liters' },
+  { key: 'flowrate_m3hr', label: 'Flowrate', unit: 'm3/hr' },
+  { key: 'chlorine_consumed', label: 'Chlorine used', unit: 'kg' },
+  { key: 'peroxide_consumption', label: 'Peroxide used' },
+  { key: 'chlorination_power_kwh', label: 'Power used', unit: 'kWh' },
+];
+
+const DEEPWELL_READING_FIELDS = [
+  { key: 'upstream_pressure_psi', label: 'Upstream pressure', unit: 'psi' },
+  { key: 'downstream_pressure_psi', label: 'Downstream pressure', unit: 'psi' },
+  { key: 'flowrate_m3hr', label: 'Flowrate', unit: 'm3/hr' },
+  { key: 'vfd_frequency_hz', label: 'VFD frequency', unit: 'Hz' },
+  { key: 'voltage_l1_v', label: 'Voltage L1', unit: 'V' },
+  { key: 'voltage_l2_v', label: 'Voltage L2', unit: 'V' },
+  { key: 'voltage_l3_v', label: 'Voltage L3', unit: 'V' },
+  { key: 'amperage_a', label: 'Amperage', unit: 'A' },
+  { key: 'tds_ppm', label: 'TDS', unit: 'ppm' },
+  { key: 'power_kwh_shift', label: 'Shift power', unit: 'kWh' },
+];
 
 export default function DashboardScreen({
   activeView,
@@ -164,7 +355,7 @@ export default function DashboardScreen({
 }) {
   const tabs = getTabs(isAdmin);
   const recentReadings = dashboard?.recentReadings ?? [];
-  const operationAlerts = buildOperationAlerts(dashboard);
+  const rawOperationAlerts = buildOperationAlerts(dashboard);
   const [isCurrentUserOnline, setIsCurrentUserOnline] = useState(() => {
     if (typeof window === 'undefined') {
       return true;
@@ -172,10 +363,22 @@ export default function DashboardScreen({
 
     return window.navigator.onLine;
   });
+  const [readNotificationKeys, setReadNotificationKeys] = useState(() => new Set());
+  const [dismissedNotificationKeys, setDismissedNotificationKeys] = useState({});
   const loginNotification = buildLoginNotification(profile, session, isCurrentUserOnline);
-  const notifications = loginNotification ? [loginNotification, ...operationAlerts] : operationAlerts;
-  const operationAlertCount = operationAlerts.length;
-  const notificationCount = notifications.length;
+  const loginLogNotifications = isAdmin ? buildLoginLogNotifications(dashboard?.loginLogs ?? []) : [];
+  const allNotifications = loginLogNotifications.length
+    ? [...loginLogNotifications, ...rawOperationAlerts]
+    : loginNotification
+      ? [loginNotification, ...rawOperationAlerts]
+      : rawOperationAlerts;
+  const notifications = allNotifications
+    .filter((alert) => !dismissedNotificationKeys[alert.key])
+    .sort((firstAlert, secondAlert) => getNotificationSortTime(secondAlert) - getNotificationSortTime(firstAlert));
+  const notificationCount = notifications.filter((alert) => !readNotificationKeys.has(alert.key)).length;
+  const operationAlertCount = rawOperationAlerts.filter(
+    (alert) => !dismissedNotificationKeys[alert.key] && !readNotificationKeys.has(alert.key)
+  ).length;
   const [dashboardSection, setDashboardSection] = useState('summary');
   const [visibleDashboardSections, setVisibleDashboardSections] = useState(['summary']);
   const [dashboardScrollRequest, setDashboardScrollRequest] = useState(0);
@@ -188,13 +391,59 @@ export default function DashboardScreen({
   const [accountMessage, setAccountMessage] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
   const [notificationSeverityFilter, setNotificationSeverityFilter] = useState('all');
+  const [openNotificationMenuKey, setOpenNotificationMenuKey] = useState('');
+  const [selectedNotificationAlert, setSelectedNotificationAlert] = useState(null);
+  const [selectedLoginLogId, setSelectedLoginLogId] = useState('');
+  const [selectedActiveAccountId, setSelectedActiveAccountId] = useState('');
+  const [loginLogsFilter, setLoginLogsFilter] = useState('login');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [openSubnav, setOpenSubnav] = useState('dashboard');
+  const [presenceNow, setPresenceNow] = useState(() => Date.now());
   const brandMenuRef = useRef(null);
   const desktopNotificationMenuRef = useRef(null);
   const mobileNotificationMenuRef = useRef(null);
   const isDarkMode = themeMode === 'dark';
+  const presenceAccounts = (() => {
+    const accounts = dashboard?.profiles ?? [];
+
+    if (!profile?.id || accounts.some((account) => account.id === profile.id)) {
+      return accounts;
+    }
+
+    return [...accounts, profile];
+  })();
+  const activeFloatingUsers = presenceAccounts
+    .filter((account) => account?.is_active !== false)
+    .map((account) => {
+      const lastSeenTime = new Date(account.last_seen_at || 0).getTime();
+      const isCurrentProfile = account.id && account.id === profile?.id;
+      const isActiveNow =
+        (Number.isFinite(lastSeenTime) && presenceNow - lastSeenTime <= ACTIVE_PRESENCE_WINDOW_MS) ||
+        (isCurrentProfile && isCurrentUserOnline);
+
+      return {
+        ...account,
+        firstName: getFirstName(account.full_name, account.email),
+        initials: getInitials(account.full_name, account.email),
+        isActiveNow,
+        lastSeenTime: Number.isFinite(lastSeenTime) ? lastSeenTime : 0,
+      };
+    })
+    .filter((account) => account.isActiveNow)
+    .sort((first, second) => second.lastSeenTime - first.lastSeenTime)
+    .slice(0, MAX_FLOATING_ACTIVE_USERS);
+  const shouldShowFloatingPresence =
+    activeView === 'dashboard' || (activeView === 'login-logs' && loginLogsFilter === 'active');
+
+  useEffect(() => {
+    setReadNotificationKeys(new Set(Object.keys(loadNotificationReadKeys(profile))));
+    setDismissedNotificationKeys(loadNotificationDismissedKeys(profile));
+  }, [profile?.id, profile?.email]);
+
+  useEffect(() => {
+    saveNotificationUnreadCount(profile, notificationCount);
+  }, [profile?.id, profile?.email, notificationCount]);
 
   useEffect(() => {
     if (!isEditAccountOpen) {
@@ -232,6 +481,11 @@ export default function DashboardScreen({
     window.addEventListener('scroll', handleScroll, { passive: true });
 
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => setPresenceNow(Date.now()), 30 * 1000);
+    return () => window.clearInterval(timerId);
   }, []);
 
   useEffect(() => {
@@ -281,7 +535,15 @@ export default function DashboardScreen({
     }
 
     if (activeView === 'login-logs' && isAdmin) {
-      return <LoginLogsScreen accounts={dashboard?.profiles ?? []} logs={dashboard?.loginLogs ?? []} />;
+      return (
+        <LoginLogsScreen
+          accounts={dashboard?.profiles ?? []}
+          highlightedActiveAccountId={selectedActiveAccountId}
+          highlightedLoginLogId={selectedLoginLogId}
+          logs={dashboard?.loginLogs ?? []}
+          onLogFilterChange={setLoginLogsFilter}
+        />
+      );
     }
 
     return (
@@ -311,7 +573,73 @@ export default function DashboardScreen({
 
   function handleNotificationSelect() {
     setIsNotificationPanelOpen((isOpen) => !isOpen);
+    setOpenNotificationMenuKey('');
     setIsBrandMenuOpen(false);
+  }
+
+  function handleAlertPillSelect() {
+    setNotificationSeverityFilter('all');
+    setIsNotificationPanelOpen(true);
+    setOpenNotificationMenuKey('');
+    setIsBrandMenuOpen(false);
+  }
+
+  function handleMarkActiveNotificationsRead(alertsToRead) {
+    if (!alertsToRead.length) {
+      return;
+    }
+
+    setReadNotificationKeys((currentKeys) => {
+      const nextKeys = new Set(currentKeys);
+      alertsToRead.forEach((alert) => nextKeys.add(alert.key));
+      saveNotificationReadKeys(profile, Object.fromEntries(Array.from(nextKeys).map((key) => [key, true])));
+      return nextKeys;
+    });
+  }
+
+  function handleNotificationOpen(alert) {
+    if (!alert?.reading && !alert?.targetView) {
+      return;
+    }
+
+    handleMarkActiveNotificationsRead([alert]);
+    setOpenNotificationMenuKey('');
+
+    if (alert.targetView === 'login-logs' && isAdmin) {
+      setSelectedLoginLogId(alert.loginLogId || '');
+      setSelectedActiveAccountId('');
+      onNavigate('login-logs');
+      setIsNotificationPanelOpen(false);
+      setSelectedNotificationAlert(null);
+      return;
+    }
+
+    setSelectedNotificationAlert(alert);
+  }
+
+  function handleFloatingPresenceOpen(account) {
+    if (!account?.id || !isAdmin) {
+      return;
+    }
+
+    setSelectedActiveAccountId(account.id);
+    setSelectedLoginLogId('');
+    onNavigate('login-logs');
+  }
+
+  function handleDismissNotification(alert) {
+    if (!alert?.key) {
+      return;
+    }
+
+    const nextDismissedKeys = {
+      ...dismissedNotificationKeys,
+      [alert.key]: true,
+    };
+    setDismissedNotificationKeys(nextDismissedKeys);
+    saveNotificationDismissedKeys(profile, nextDismissedKeys);
+    handleMarkActiveNotificationsRead([alert]);
+    setOpenNotificationMenuKey('');
   }
 
   function normalizeEmail(value) {
@@ -355,7 +683,10 @@ export default function DashboardScreen({
     const severityTabs = Object.entries(NOTIFICATION_SEVERITY_LABELS).map(([key, label]) => ({
       key,
       label,
-      count: key === 'all' ? notificationCount : notifications.filter((alert) => alert.severity === key).length,
+      count:
+        key === 'all'
+          ? notifications.length
+          : notifications.filter((alert) => alert.severity === key).length,
     }));
     const filteredAlerts =
       notificationSeverityFilter === 'all'
@@ -371,8 +702,16 @@ export default function DashboardScreen({
         <div className="notification-panel-head">
           <div>
             <strong>Notifications</strong>
-            <span>{notificationCount ? `${notificationCount} notification(s)` : 'No notifications'}</span>
+            <span>{notificationCount ? `${notificationCount} unread` : 'No unread notifications'}</span>
           </div>
+          <button
+            type="button"
+            className="notification-mark-read-button"
+            disabled={!filteredAlerts.length}
+            onClick={() => handleMarkActiveNotificationsRead(filteredAlerts)}
+          >
+            Mark all as read
+          </button>
         </div>
         <div className="notification-severity-tabs" role="tablist" aria-label="Alert seriousness">
           {severityTabs.map((tab) => (
@@ -391,15 +730,63 @@ export default function DashboardScreen({
         </div>
         <div className="notification-list">
           {filteredAlerts.length ? (
-            filteredAlerts.map((alert) => (
-              <article className={`notification-item ${alert.severity}`} key={alert.key}>
-                <div>
-                  <strong>{alert.title}</strong>
-                  <span>{alert.severity}</span>
-                </div>
-                <p>{alert.detail}</p>
-              </article>
-            ))
+            filteredAlerts.map((alert) => {
+              const isClickableNotification = Boolean(alert.reading || alert.targetView);
+
+              return (
+                <article
+                  className={`notification-item ${alert.severity} ${isClickableNotification ? 'clickable' : ''} ${readNotificationKeys.has(alert.key) ? 'read' : 'unread'}`}
+                  key={alert.key}
+                  role={isClickableNotification ? 'button' : undefined}
+                  tabIndex={isClickableNotification ? 0 : undefined}
+                  onClick={() => handleNotificationOpen(alert)}
+                  onKeyDown={(event) => {
+                    if (isClickableNotification && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      handleNotificationOpen(alert);
+                    }
+                  }}
+                >
+                  {!readNotificationKeys.has(alert.key) ? <span className="notification-unread-dot" aria-hidden="true" /> : null}
+                  <div>
+                    <strong>{alert.title}</strong>
+                    <span>{alert.severity}</span>
+                  </div>
+                  <p>{alert.detail}</p>
+                  <time className="notification-timestamp" dateTime={getNotificationTimestamp(alert) || undefined}>
+                    {formatRelativeTime(getNotificationTimestamp(alert))}
+                  </time>
+                  <div className="notification-item-menu-wrap">
+                    <button
+                      type="button"
+                      className="notification-kebab-button"
+                      aria-label={`More options for ${alert.title}`}
+                      aria-expanded={openNotificationMenuKey === alert.key}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setOpenNotificationMenuKey((currentKey) => (currentKey === alert.key ? '' : alert.key));
+                      }}
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    {openNotificationMenuKey === alert.key ? (
+                      <div className="notification-item-menu">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDismissNotification(alert);
+                          }}
+                        >
+                          <Trash2 size={14} />
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })
           ) : (
             <p className="notification-empty">No {activeSeverityLabel} right now.</p>
           )}
@@ -610,10 +997,15 @@ export default function DashboardScreen({
                 <CheckCircle2 size={14} />
                 Connected
               </span>
-              <span className={operationAlertCount ? 'status-pill warning' : 'status-pill connected'}>
+              <button
+                className={operationAlertCount ? 'status-pill status-pill-button warning' : 'status-pill status-pill-button connected'}
+                type="button"
+                aria-label={`Open notifications, ${operationAlertCount} unread alerts`}
+                onClick={handleAlertPillSelect}
+              >
                 <AlertTriangle size={14} />
                 {operationAlertCount} alerts
-              </span>
+              </button>
             </div>
             <div className="topbar-actions">
               <span className="freshness-pill">
@@ -650,6 +1042,35 @@ export default function DashboardScreen({
         {message ? <div className="notice">{message}</div> : null}
         {renderActiveView()}
       </section>
+
+      {shouldShowFloatingPresence && activeFloatingUsers.length ? (
+        <aside
+          className={showScrollTop ? 'floating-presence-stack with-scroll-top' : 'floating-presence-stack'}
+          aria-label="Active users"
+        >
+          {activeFloatingUsers.map((account) => (
+            <button
+              className="floating-presence-item active"
+              key={account.id || account.email}
+              type="button"
+              aria-label={`${account.full_name || account.email || 'User'}, ${formatRoleLabel(account.role) || 'User'}, active now`}
+              onClick={() => handleFloatingPresenceOpen(account)}
+            >
+              <span className="floating-presence-identity" aria-hidden="true">
+                <span className="floating-presence-avatar">
+                  {account.initials}
+                  <span className="floating-presence-dot" />
+                </span>
+                <span className="floating-presence-name">{account.firstName}</span>
+              </span>
+              <span className="floating-presence-popover" role="tooltip">
+                <strong>{account.full_name || account.email || 'User'}</strong>
+                <span>{formatRoleLabel(account.role) || 'User'} · Active now</span>
+              </span>
+            </button>
+          ))}
+        </aside>
+      ) : null}
 
       <button
         className={showScrollTop ? 'scroll-top-button visible' : 'scroll-top-button'}
@@ -731,6 +1152,49 @@ export default function DashboardScreen({
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {selectedNotificationAlert?.reading ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setSelectedNotificationAlert(null)}>
+          <section className="reading-detail-dialog" role="dialog" aria-modal="true" aria-label="Reading details" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="dialog-close-button" aria-label="Close details" onClick={() => setSelectedNotificationAlert(null)}>
+              <X size={18} />
+            </button>
+            <header className="reading-detail-header">
+              <p className="eyebrow">{selectedNotificationAlert.reading.site_type === 'CHLORINATION' ? 'Chlorination' : 'Deepwell'}</p>
+              <h3>{getReadingSiteName(selectedNotificationAlert.reading)}</h3>
+              <span>{formatReadingSlotLabel(selectedNotificationAlert.reading.slot_datetime || selectedNotificationAlert.reading.reading_datetime)}</span>
+            </header>
+            <div className="reading-detail-meta">
+              <div>
+                <span>Submitted by</span>
+                <strong>{getReadingOperatorName(selectedNotificationAlert.reading)}</strong>
+              </div>
+              <div>
+                <span>Saved</span>
+                <strong>{formatDateTime(selectedNotificationAlert.reading.created_at || selectedNotificationAlert.reading.reading_datetime)}</strong>
+              </div>
+            </div>
+            <div className={`reading-detail-values ${selectedNotificationAlert.reading.site_type === 'CHLORINATION' ? 'chlorination' : 'deepwell'}`}>
+              {getReadingDetailFields(selectedNotificationAlert.reading).map(([key, label, value]) => {
+                const isHighlighted = selectedNotificationAlert.alertField && key === selectedNotificationAlert.alertField;
+
+                return (
+                  <div className={isHighlighted ? 'alert-highlight' : undefined} key={key}>
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </div>
+                );
+              })}
+            </div>
+            {selectedNotificationAlert.reading.remarks ? (
+              <div className="reading-detail-remarks">
+                <span>Remarks</span>
+                <strong>{selectedNotificationAlert.reading.remarks}</strong>
+              </div>
+            ) : null}
           </section>
         </div>
       ) : null}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Clock3, History, Radio } from 'lucide-react';
 import { formatRoleLabel, normalizeRole } from '../services/dashboard';
 
@@ -83,9 +83,16 @@ function sortByLastSeen(accounts) {
   });
 }
 
-export default function LoginLogsScreen({ accounts = [], logs = [] }) {
+export default function LoginLogsScreen({
+  accounts = [],
+  highlightedActiveAccountId = '',
+  highlightedLoginLogId = '',
+  logs = [],
+  onLogFilterChange,
+}) {
   const [logFilter, setLogFilter] = useState('login');
   const [roleFilter, setRoleFilter] = useState('all');
+  const highlightedRowRef = useRef(null);
   const activeStatusLogs = useMemo(() => sortByLastSeen(accounts), [accounts]);
   const roleOptions = useMemo(() => {
     const roles = new Set([
@@ -110,9 +117,42 @@ export default function LoginLogsScreen({ accounts = [], logs = [] }) {
   const visibleCount = isLoginFilter ? filteredLoginLogs.length : filteredActiveStatusLogs.length;
   const activeFilterLabel = isLoginFilter ? 'recent login(s)' : 'active status record(s)';
 
+  useEffect(() => {
+    onLogFilterChange?.(logFilter);
+  }, [logFilter, onLogFilterChange]);
+
+  useEffect(() => {
+    if (!highlightedLoginLogId) {
+      return;
+    }
+
+    setLogFilter('login');
+    setRoleFilter('all');
+  }, [highlightedLoginLogId]);
+
+  useEffect(() => {
+    if (!highlightedActiveAccountId) {
+      return;
+    }
+
+    setLogFilter('active');
+    setRoleFilter('all');
+  }, [highlightedActiveAccountId]);
+
+  useEffect(() => {
+    if ((!highlightedLoginLogId && !highlightedActiveAccountId) || !highlightedRowRef.current) {
+      return;
+    }
+
+    highlightedRowRef.current.scrollIntoView({
+      block: 'center',
+      behavior: 'smooth',
+    });
+  }, [filteredActiveStatusLogs, filteredLoginLogs, highlightedActiveAccountId, highlightedLoginLogId, logFilter]);
+
   return (
     <section className="panel">
-      <div className="panel-heading">
+      <div className="panel-heading logs-panel-heading">
         <div className="account-heading-main">
           <h3>Logs</h3>
           <div className="account-filter-row" aria-label="Filter logs">
@@ -160,21 +200,25 @@ export default function LoginLogsScreen({ accounts = [], logs = [] }) {
               </tr>
             </thead>
             <tbody>
-              {filteredLoginLogs.map((log) => (
-                <tr key={log.id}>
-                  <td>{log.full_name || '-'}</td>
-                  <td>{log.email || '-'}</td>
-                  <td>{formatRoleLabel(log.role) || '-'}</td>
-                  <td>
-                    <span className="inline-table-icon">
-                      <Clock3 size={14} />
-                      {formatDateTime(log.logged_in_at)}
-                    </span>
-                  </td>
-                  <td>{log.browser || formatUserAgent(log.user_agent)}</td>
-                  <td>{log.device || '-'}</td>
-                </tr>
-              ))}
+              {filteredLoginLogs.map((log) => {
+                const isHighlighted = highlightedLoginLogId && String(log.id) === String(highlightedLoginLogId);
+
+                return (
+                  <tr className={isHighlighted ? 'selected-log-row' : undefined} key={log.id} ref={isHighlighted ? highlightedRowRef : null}>
+                    <td>{log.full_name || '-'}</td>
+                    <td>{log.email || '-'}</td>
+                    <td>{formatRoleLabel(log.role) || '-'}</td>
+                    <td>
+                      <span className="inline-table-icon">
+                        <Clock3 size={14} />
+                        {formatDateTime(log.logged_in_at)}
+                      </span>
+                    </td>
+                    <td>{log.browser || formatUserAgent(log.user_agent)}</td>
+                    <td>{log.device || '-'}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -196,9 +240,10 @@ export default function LoginLogsScreen({ accounts = [], logs = [] }) {
             <tbody>
               {filteredActiveStatusLogs.map((account) => {
                 const presenceStatus = getPresenceStatus(account.last_seen_at);
+                const isHighlighted = highlightedActiveAccountId && String(account.id) === String(highlightedActiveAccountId);
 
                 return (
-                  <tr key={account.id}>
+                  <tr className={isHighlighted ? 'selected-log-row' : undefined} key={account.id} ref={isHighlighted ? highlightedRowRef : null}>
                     <td>{account.full_name || '-'}</td>
                     <td>{account.email || '-'}</td>
                     <td>{formatRoleLabel(account.role) || '-'}</td>

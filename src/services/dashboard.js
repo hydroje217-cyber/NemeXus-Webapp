@@ -39,6 +39,18 @@ function startOfTodayIso() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 }
 
+function startOfPreviousNightIso(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const baseDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() - 1, 23).toISOString();
+}
+
+function startOfTomorrowIso(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  const baseDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + 1).toISOString();
+}
+
 function normalizeReading(row, siteType) {
   return {
     ...row,
@@ -470,7 +482,15 @@ async function fetchLoginLogs() {
 }
 
 export function normalizeRole(role) {
-  return role === 'general manager' ? GENERAL_MANAGER_ROLE : role;
+  if (role === 'general manager') {
+    return GENERAL_MANAGER_ROLE;
+  }
+
+  if (role === 'test operator') {
+    return 'test_operator';
+  }
+
+  return role;
 }
 
 export function formatRoleLabel(role) {
@@ -521,6 +541,8 @@ export async function updateProfileEmail(profileId, email) {
 export async function getDashboardSnapshot({ limit = 50 } = {}) {
   const todayIso = startOfTodayIso();
   const checkpointFromIso = new Date(new Date(todayIso).getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const slotQueryStartIso = startOfPreviousNightIso();
+  const tomorrowIso = startOfTomorrowIso();
   const analyticsRange = getAnalyticsSourceRange();
 
   const [
@@ -531,6 +553,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     todaySummaries,
     recentSummaries,
     recentRawReadings,
+    todaySlotReadings,
     profiles,
     loginLogs,
     operators,
@@ -562,6 +585,12 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .order('summary_date', { ascending: false })
       .limit(limit),
     loadRecentRawReadings({ fromIso: checkpointFromIso, limit: 250 }),
+    loadRawReadings({
+      fromIso: slotQueryStartIso,
+      toIso: tomorrowIso,
+      filterColumn: 'slot_datetime',
+      ascending: true,
+    }),
     supabase
       .from('profiles')
       .select(PROFILE_SELECT)
@@ -619,6 +648,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     },
     pendingApprovals: (pendingApprovals.data ?? []).map(normalizeProfile),
     recentReadings,
+    todaySlotReadings,
     profiles: (profiles.data ?? []).map(normalizeProfile),
     loginLogs: (loginLogs.data ?? []).map(normalizeLoginLog),
     operators: (operators.data ?? []).map(normalizeProfile),

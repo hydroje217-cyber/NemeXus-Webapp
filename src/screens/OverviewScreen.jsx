@@ -418,7 +418,7 @@ function formatDateTime(value) {
 }
 
 function getReadingTime(reading) {
-  const parsed = new Date(reading?.reading_datetime || reading?.slot_datetime || reading?.created_at || '');
+  const parsed = new Date(reading?.slot_datetime || reading?.reading_datetime || reading?.created_at || '');
   return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
 }
 
@@ -555,6 +555,20 @@ function getCurrentShift(date = new Date()) {
   return 'SHIFT C (11PM - 7AM)';
 }
 
+function getCurrentShiftLabel(date = new Date()) {
+  const hour = date.getHours();
+
+  if (hour >= 7 && hour < 15) {
+    return 'A-Shift';
+  }
+
+  if (hour >= 15 && hour < 23) {
+    return 'B-Shift';
+  }
+
+  return 'C-Shift';
+}
+
 function getCurrentShiftWindow(date = new Date()) {
   const start = new Date(date);
   const end = new Date(date);
@@ -590,17 +604,38 @@ function addRangeAlert(alerts, reading, field, label, min, max, unit = '') {
     return;
   }
 
+  const status = value < min ? 'Low' : 'High';
+  const slotText = formatAlertTimestamp(reading?.slot_datetime || reading?.reading_datetime || reading?.created_at);
+
   alerts.push({
-    key: `${reading.site_type}-${reading.id}-${field}`,
+    key: `${reading.site_type || 'site'}-${reading.id || field}-${field}-${status.toLowerCase()}`,
     severity: value < min ? 'warning' : 'critical',
-    title: `${label} outside target`,
-    detail: `${getSiteName(reading)} reported ${value}${unit ? ` ${unit}` : ''}; target is ${min}-${max}${unit ? ` ${unit}` : ''}.`,
+    title: `${label} ${status}`,
+    detail: `${getSiteName(reading)} reported ${value}${unit ? ` ${unit}` : ''} for ${slotText}; normal range is ${min}-${max}${unit ? ` ${unit}` : ''}.`,
+    timestamp: reading?.created_at || reading?.reading_datetime || reading?.slot_datetime,
+    reading,
+    alertField: field,
   });
+}
+
+function formatAlertTimestamp(value) {
+  if (!value) {
+    return '-';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+
+  const pad = (number) => String(number).padStart(2, '0');
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
 }
 
 export function buildOperationAlerts(dashboard) {
   const alerts = [];
   const readings = dashboard?.recentReadings ?? [];
+  const slotReadings = dashboard?.todaySlotReadings ?? readings;
   const now = Date.now();
   const newestReadingTime = readings.reduce((latest, reading) => Math.max(latest, getReadingTime(reading)), 0);
   const { start, end } = getCurrentShiftWindow(new Date());
@@ -624,36 +659,44 @@ export function buildOperationAlerts(dashboard) {
         key: `missing-${siteType}`,
         severity: 'warning',
         title: `${siteType === 'CHLORINATION' ? 'Chlorination' : 'Deepwell'} shift reading missing`,
-        detail: `No ${siteType.toLowerCase()} reading has been received for ${getCurrentShift()}.`,
+        detail: `No ${siteType.toLowerCase()} reading has been received for ${getCurrentShiftLabel()}.`,
       });
     }
   });
 
-  readings.slice(0, 20).forEach((reading) => {
-    if (reading.site_type === 'CHLORINATION') {
-      addRangeAlert(alerts, reading, 'ph', 'pH', 6.5, 8.5);
-      addRangeAlert(alerts, reading, 'rc_ppm', 'Residual chlorine', 0.2, 2, 'ppm');
-      addRangeAlert(alerts, reading, 'turbidity_ntu', 'Turbidity', 0, 5, 'NTU');
-      addRangeAlert(alerts, reading, 'pressure_psi', 'Pressure', 15, 100, 'psi');
-    }
+  slotReadings
+    .filter((reading) => getReadingTime(reading) <= now)
+    .sort((first, second) => getReadingTime(second) - getReadingTime(first))
+    .forEach((reading) => {
+      if (reading.site_type === 'CHLORINATION') {
+        addRangeAlert(alerts, reading, 'pressure_psi', 'Pressure', 20, 100, 'psi');
+        addRangeAlert(alerts, reading, 'rc_ppm', 'Residual chlorine', 0.3, 1.5, 'ppm');
+        addRangeAlert(alerts, reading, 'turbidity_ntu', 'Turbidity', 0, 5, 'NTU');
+        addRangeAlert(alerts, reading, 'ph', 'pH', 6.5, 7);
+        addRangeAlert(alerts, reading, 'tds_ppm', 'TDS', 0, 300, 'ppm');
+      }
 
-    if (reading.site_type === 'DEEPWELL') {
-      addRangeAlert(alerts, reading, 'tds_ppm', 'TDS', 0, 500, 'ppm');
-      addRangeAlert(alerts, reading, 'upstream_pressure_psi', 'Upstream pressure', 15, 120, 'psi');
-      addRangeAlert(alerts, reading, 'downstream_pressure_psi', 'Downstream pressure', 15, 120, 'psi');
-    }
-  });
+      if (reading.site_type === 'DEEPWELL') {
+        addRangeAlert(alerts, reading, 'upstream_pressure_psi', 'Upstream pressure', 35, 150, 'psi');
+        addRangeAlert(alerts, reading, 'downstream_pressure_psi', 'Downstream pressure', 20, 100, 'psi');
+        addRangeAlert(alerts, reading, 'voltage_l1_v', 'Voltage L1', 430, 490, 'V');
+        addRangeAlert(alerts, reading, 'voltage_l2_v', 'Voltage L2', 460, 490, 'V');
+        addRangeAlert(alerts, reading, 'voltage_l3_v', 'Voltage L3', 430, 490, 'V');
+        addRangeAlert(alerts, reading, 'amperage_a', 'Amperage', 24, 46, 'A');
+        addRangeAlert(alerts, reading, 'tds_ppm', 'TDS', 0, 300, 'ppm');
+      }
+    });
 
   if (dashboard?.pendingApprovals?.length) {
     alerts.push({
       key: 'pending-approvals',
       severity: 'info',
       title: 'Operator approvals waiting',
-      detail: `${dashboard.pendingApprovals.length} operator account(s) need admin review.`,
+      detail: `${dashboard.pendingApprovals.length} operator account(s) need account manager review.`,
     });
   }
 
-  return alerts.slice(0, 8);
+  return alerts;
 }
 
 function PendingApprovalNotice({ dashboard, onOpenApprovals }) {

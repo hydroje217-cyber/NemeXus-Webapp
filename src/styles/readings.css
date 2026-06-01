@@ -18,7 +18,11 @@
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 22px;
+  padding: 18px;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 5.2fr);
+  align-items: end;
+  gap: 16px;
   overflow: visible;
 }
 
@@ -33,7 +37,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
+  min-width: 0;
 }
 
 .readings-filter-header > div,
@@ -48,13 +53,13 @@
 .readings-info-card h3 {
   margin: 0;
   color: #102236;
-  font-size: 1.35rem;
+  font-size: clamp(1.02rem, 1.15vw, 1.35rem);
   overflow-wrap: anywhere;
 }
 
 .readings-filter-icon {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border: 1px solid #b9d6de;
   border-radius: 8px;
   background: #edf8fa;
@@ -78,23 +83,21 @@
 
 .readings-form-grid {
   --readings-filter-control-height: 40px;
-  --readings-date-filter-width: minmax(160px, .7fr);
-  --readings-limit-filter-width: minmax(170px, .65fr);
-  --readings-site-filter-width: minmax(160px, .7fr);
-  --readings-status-filter-width: minmax(160px, .7fr);
-  --readings-search-filter-width: minmax(190px, 1fr);
-  --readings-export-filter-width: minmax(50px, 0.30fr);
+  --readings-date-filter-width: minmax(118px, 30fr);
+  --readings-limit-filter-width: minmax(86px, 20fr);
+  --readings-site-filter-width: minmax(118px, 25fr);
+  --readings-search-filter-width: minmax(150px, 70fr);
+  --readings-export-filter-width: minmax(108px, 30fr);
   display: grid;
   grid-template-columns:
     var(--readings-date-filter-width)
     var(--readings-date-filter-width)
     var(--readings-limit-filter-width)
     var(--readings-site-filter-width)
-    var(--readings-status-filter-width)
     var(--readings-search-filter-width)
     var(--readings-export-filter-width);
   align-items: end;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -102,7 +105,7 @@
 
 .readings-field {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -136,7 +139,7 @@
 
 .readings-field > span {
   color: #2f3f4c;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 900;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -178,6 +181,12 @@
   background: #f8fbfc;
   color: #60727c;
   padding: 0 10px;
+}
+
+.input-with-icon svg,
+.select-with-icon svg,
+.export-button svg {
+  flex: 0 0 auto;
 }
 
 .input-with-icon input,
@@ -274,6 +283,11 @@
 }
 
 @media (max-width: 1280px) {
+  .readings-filter-card {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
   .readings-form-grid {
     grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   }
@@ -392,7 +406,9 @@
 }
 
 .readings-table-wrap {
-  max-height: 390px;
+  --readings-table-header-height: 52px;
+  --readings-table-row-height: 50px;
+  max-height: calc(var(--readings-table-header-height) + (var(--readings-table-row-height) * 5) + 2px);
   overflow: auto;
 }
 
@@ -406,7 +422,7 @@
   background: #11233b;
   color: #ffffff;
   font-size: 0.76rem;
-  height: 52px;
+  height: var(--readings-table-header-height);
 }
 
 .readings-table-wrap tr:nth-child(even) td {
@@ -423,7 +439,7 @@
 }
 
 .readings-table-wrap td {
-  height: 50px;
+  height: var(--readings-table-row-height);
 }
 
 .table-icon-button {
@@ -560,11 +576,11 @@
 }
 
 .reading-detail-values.chlorination {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .reading-detail-values.deepwell {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .reading-detail-values > div {
@@ -580,6 +596,11 @@
   gap: 14px;
 }
 
+.reading-detail-values > div.alert-highlight {
+  border-color: #f5c451;
+  background: #3a2b12;
+}
+
 .reading-detail-values span {
   color: #d4e4eb;
   font-size: 0.82rem;
@@ -593,6 +614,14 @@
   font-weight: 1000;
   text-align: right;
   white-space: nowrap;
+}
+
+.reading-detail-values > div.alert-highlight span {
+  color: #fde68a;
+}
+
+.reading-detail-values > div.alert-highlight strong {
+  color: #fbbf24;
 }
 
 .reading-detail-remarks {

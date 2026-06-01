@@ -515,7 +515,6 @@ export default function ReadingsScreen() {
   const [toDate, setToDate] = useState(initialDateRange.toDate);
   const [limit, setLimit] = useState(DEFAULT_LIMIT);
   const [customLimit, setCustomLimit] = useState(DEFAULT_CUSTOM_LIMIT);
-  const [statusFilter, setStatusFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedReading, setSelectedReading] = useState(null);
@@ -628,26 +627,16 @@ export default function ReadingsScreen() {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
     return items.filter((item) => {
-      const status = item.status || '';
-
-      if (statusFilter !== 'all' && status !== statusFilter) {
-        return false;
-      }
-
       if (normalizedSearch && !getReadingSearchText(item).includes(normalizedSearch)) {
         return false;
       }
 
       return true;
     });
-  }, [items, searchTerm, statusFilter]);
+  }, [items, searchTerm]);
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const currentSafePage = Math.min(currentPage, totalPages);
   const visibleItems = filteredItems.slice((currentSafePage - 1) * PAGE_SIZE, currentSafePage * PAGE_SIZE);
-  const statusOptions = useMemo(
-    () => Array.from(new Set(items.map((item) => item.status).filter(Boolean))).sort(),
-    [items]
-  );
   const visibleDailyAverageRows = useMemo(() => sortRowsByDateDesc(dailyAverageRows), [dailyAverageRows]);
   const dailyAverageColumns = useMemo(
     () => [
@@ -774,10 +763,10 @@ export default function ReadingsScreen() {
 
   useEffect(() => {
     setCurrentPage(1);
-    if (items.length || searchTerm || statusFilter !== 'all') {
+    if (items.length || searchTerm) {
       appendStatusLog('info', `Filters active: ${filteredItems.length} of ${items.length} record(s) visible.`);
     }
-  }, [appendStatusLog, filteredItems.length, items.length, searchTerm, tableMode, statusFilter]);
+  }, [appendStatusLog, filteredItems.length, items.length, searchTerm, tableMode]);
 
   async function handleExport(nextFormat = exportFormat) {
     if (!items.length && !dailyAverageRows.length) {
@@ -900,16 +889,6 @@ export default function ReadingsScreen() {
             <select value={tableMode} onChange={(event) => setTableMode(event.target.value)}>
               {SITE_TYPE_OPTIONS.map((option) => (
                 <option value={option.value} key={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label className="readings-field">
-            <span>Status</span>
-            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="all">All statuses</option>
-              {statusOptions.map((status) => (
-                <option value={status} key={status}>{status}</option>
               ))}
             </select>
           </label>
