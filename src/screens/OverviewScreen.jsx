@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronDown, Clock, Droplets, Eye, FlaskConical, Grid3X3, History, Hourglass, Users, X, Zap } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BarChart3, Bell, Building2, CalendarDays, CheckCircle2, ChevronDown, Clock, Download, Droplets, Eye, FlaskConical, Grid3X3, History, Hourglass, Save, Users, X, Zap } from 'lucide-react';
 import {
   Bar,
   BarChart as RechartsBarChart,
@@ -12,8 +12,17 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { saveMonthlyBilledVolume } from '../services/dashboard';
+import { exportSummaryReportPptx } from '../utils/summaryPptxExport';
 
 const DAILY_PRODUCTION_DEFAULT_DAYS = 7;
+const DEFAULT_BILLED_VOLUMES = {
+  '2025-12': 5895.89,
+  '2026-01': 7615.38,
+  '2026-02': 6658.00,
+  '2026-03': 4837.16,
+  '2026-04': 6629.99,
+};
 
 function formatNumber(value, decimals = 2) {
   const parsed = Number(value);
@@ -94,6 +103,11 @@ function getCurrentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function getCurrentDateKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 function getCurrentYear() {
   return new Date().getFullYear();
 }
@@ -107,12 +121,74 @@ function getStoredNumber(key, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function getStoredBilledVolumes() {
+  if (typeof window === 'undefined') {
+    return DEFAULT_BILLED_VOLUMES;
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem('nemexus-monthly-billed-volumes') || '{}');
+    return parsed && typeof parsed === 'object' ? { ...DEFAULT_BILLED_VOLUMES, ...parsed } : DEFAULT_BILLED_VOLUMES;
+  } catch (_error) {
+    return DEFAULT_BILLED_VOLUMES;
+  }
+}
+
 function setStoredNumber(key, value) {
   if (typeof window === 'undefined' || !Number.isFinite(value)) {
     return;
   }
 
   window.localStorage.setItem(key, String(value));
+}
+
+function setStoredBilledVolumes(value) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem('nemexus-monthly-billed-volumes', JSON.stringify(value));
+}
+
+function buildBilledVolumeMap(rows = []) {
+  return rows.reduce((map, row) => {
+    if (row?.month_key && Number.isFinite(Number(row.billed_volume_m3))) {
+      map[row.month_key] = Number(row.billed_volume_m3);
+    }
+
+    return map;
+  }, {});
+}
+
+function getMonthNameFromKey(monthKey) {
+  const [year, month] = String(monthKey || '').split('-').map(Number);
+  const date = Number.isFinite(year) && Number.isFinite(month) ? new Date(year, month - 1, 1) : new Date();
+
+  return date.toLocaleString('en-US', {
+    month: 'long',
+  });
+}
+
+function getMonthYearLabelFromKey(monthKey) {
+  const [year] = String(monthKey || '').split('-').map(Number);
+  return `${getMonthNameFromKey(monthKey)} ${Number.isFinite(year) ? year : getCurrentYear()}`;
+}
+
+function getDateLabelFromKey(dateKey) {
+  if (!dateKey) {
+    return '-';
+  }
+
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(dateKey);
+  }
+
+  return parsed.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 function YearDropdown({ classPrefix, isOpen, onToggle, onSelect, pickerRef, selectedYear, years }) {
@@ -735,7 +811,60 @@ function PendingApprovalNotice({ dashboard, onOpenApprovals }) {
   );
 }
 
-function LiveSummaryPanel({ dashboard, panelRef }) {
+function SummaryMonthPicker({ label, monthOptions = [], value, onChange }) {
+  const selectedOption = monthOptions.find((month) => month.key === value) || monthOptions[0];
+  const monthKeys = monthOptions.map((month) => month.key).filter(Boolean).sort();
+  const selectedMonthKey = selectedOption?.key || value || getCurrentMonthKey();
+
+  return (
+    <div className="summary-export-field summary-month-picker">
+      <span>{label}</span>
+      <input
+        type="month"
+        value={selectedMonthKey}
+        min={monthKeys[0]}
+        max={monthKeys[monthKeys.length - 1]}
+        aria-label={label}
+        title={getMonthYearLabelFromKey(selectedMonthKey)}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+function SummaryDatePicker({ label, value, min, max, onChange }) {
+  const selectedDateKey = value || max || getCurrentDateKey();
+
+  return (
+    <div className="summary-export-field summary-date-picker">
+      <span>{label}</span>
+      <input
+        type="date"
+        value={selectedDateKey}
+        min={min}
+        max={max}
+        aria-label={label}
+        title={getDateLabelFromKey(selectedDateKey)}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </div>
+  );
+}
+
+function LiveSummaryPanel({
+  dashboard,
+  exportingSummaryReport = false,
+  exportMenuOpen = false,
+  exportDateLimits,
+  exportOptions,
+  exportMonthOptions = [],
+  onCloseExportMenu,
+  onExportOptionChange,
+  onExportSummaryReport,
+  onToggleExportMenu,
+  panelRef,
+  exportMenuRef,
+}) {
   const stats = dashboard?.stats ?? {};
   const summaryItems = [
     { label: 'Operators', value: stats.totalOperators ?? 0, icon: Users },
@@ -747,13 +876,76 @@ function LiveSummaryPanel({ dashboard, panelRef }) {
 
   return (
     <section className="live-summary-panel" ref={panelRef}>
-      <header className="operation-alerts-heading">
-        <span className="section-icon">
-          <Zap size={16} />
-        </span>
-        <div>
-          <h3>Live summary</h3>
-          <p>Registrations, approvals, sites, and reading activity.</p>
+      <header className="operation-alerts-heading live-summary-heading">
+        <div className="live-summary-title">
+          <span className="section-icon">
+            <Zap size={16} />
+          </span>
+          <div>
+            <h3>Live summary</h3>
+            <p>Registrations, approvals, sites, and reading activity.</p>
+          </div>
+        </div>
+        <div className="summary-export-menu" ref={exportMenuRef}>
+          <button
+            type="button"
+            className="summary-export-button"
+            disabled={exportingSummaryReport}
+            onClick={onToggleExportMenu}
+            title="Export summary report to PowerPoint"
+            aria-expanded={exportMenuOpen}
+          >
+            <Download size={16} />
+            <span>{exportingSummaryReport ? 'Exporting...' : 'Export'}</span>
+            <ChevronDown size={15} />
+          </button>
+          {exportMenuOpen ? (
+            <div className="summary-export-panel">
+              <div className="summary-export-range-row">
+                <SummaryDatePicker
+                  label="Daily date from"
+                  value={exportOptions.dailyStartDate}
+                  min={exportDateLimits?.min}
+                  max={exportDateLimits?.max}
+                  onChange={(dailyStartDate) => onExportOptionChange({ dailyStartDate })}
+                />
+
+                <SummaryDatePicker
+                  label="Daily date to"
+                  value={exportOptions.dailyEndDate}
+                  min={exportDateLimits?.min}
+                  max={exportDateLimits?.max}
+                  onChange={(dailyEndDate) => onExportOptionChange({ dailyEndDate })}
+                />
+              </div>
+
+              <div className="summary-export-range-row">
+                <SummaryMonthPicker
+                  label="Monthly graphs from"
+                  monthOptions={exportMonthOptions}
+                  value={exportOptions.graphStartMonthKey}
+                  onChange={(graphStartMonthKey) => onExportOptionChange({ graphStartMonthKey })}
+                />
+
+                <SummaryMonthPicker
+                  label="Monthly graphs to"
+                  monthOptions={exportMonthOptions}
+                  value={exportOptions.graphEndMonthKey}
+                  onChange={(graphEndMonthKey) => onExportOptionChange({ graphEndMonthKey })}
+                />
+              </div>
+
+              <div className="summary-export-actions">
+                <button type="button" className="summary-export-cancel" onClick={onCloseExportMenu}>
+                  Cancel
+                </button>
+                <button type="button" className="summary-export-confirm" disabled={exportingSummaryReport} onClick={onExportSummaryReport}>
+                  <Download size={15} />
+                  PPTX
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </header>
       <div className="live-summary-grid">
@@ -776,12 +968,156 @@ function LiveSummaryPanel({ dashboard, panelRef }) {
   );
 }
 
-function OverviewTopPanels({ dashboard, onOpenApprovals, summaryRef }) {
+function BilledVolumePanel({
+  billedVolumeDraft,
+  billedVolumeMonthOptions = [],
+  billedVolumeOptions,
+  billedVolumeYearOptions = [],
+  billedVolumeSaved,
+  billedVolumeNrw,
+  billedVolumeNrwPercent,
+  billedVolumeProduction,
+  billedVolumeSaving,
+  onBilledVolumeDraftChange,
+  onBilledVolumeOptionChange,
+  onSaveBilledVolume,
+}) {
+  return (
+    <section className="billed-volume-panel">
+      <header className="operation-alerts-heading billed-volume-heading">
+        <span className="section-icon">
+          <Droplets size={16} />
+        </span>
+        <div>
+          <h3>Billed volume</h3>
+          <p>Monthly customer-billed water for NRW tracking.</p>
+        </div>
+      </header>
+
+      <form className="billed-volume-form" onSubmit={onSaveBilledVolume}>
+        <div className="billed-volume-controls">
+          <label className="billed-volume-field">
+            <span>Year</span>
+            <select value={billedVolumeOptions.year} onChange={(event) => onBilledVolumeOptionChange({ year: Number(event.target.value) })}>
+              {billedVolumeYearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="billed-volume-field">
+            <span>Month</span>
+            <select value={billedVolumeOptions.monthKey} onChange={(event) => onBilledVolumeOptionChange({ monthKey: event.target.value })}>
+              {billedVolumeMonthOptions.map((month) => (
+                <option key={month.key} value={month.key}>
+                  {month.monthLabel || `${getMonthNameFromKey(month.key)} ${String(month.key).slice(0, 4)}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <label className="billed-volume-field billed-volume-input-field">
+          <span>Billed Volume m3</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            value={billedVolumeDraft}
+            onChange={(event) => onBilledVolumeDraftChange(event.target.value)}
+            placeholder="0.00"
+          />
+        </label>
+
+        <div className="billed-volume-results">
+          <div>
+            <span>Production</span>
+            <strong>{formatNumber(billedVolumeProduction)}</strong>
+          </div>
+          <div>
+            <span>NRW</span>
+            <strong>{formatNumber(billedVolumeNrw)}</strong>
+          </div>
+          <div>
+            <span>NRW %</span>
+            <strong>{Number.isFinite(billedVolumeNrwPercent) ? `${formatNumber(billedVolumeNrwPercent)}%` : '-'}</strong>
+          </div>
+        </div>
+
+        <div className="billed-volume-actions">
+          <p>{billedVolumeSaved ? `Saved for ${getMonthNameFromKey(billedVolumeOptions.monthKey)} ${billedVolumeOptions.year}` : 'No billed volume saved for this month.'}</p>
+          <button type="submit">
+            <Save size={15} />
+            {billedVolumeSaving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function OverviewTopPanels({
+  billedVolumeDraft,
+  billedVolumeMonthOptions,
+  billedVolumeOptions,
+  billedVolumeYearOptions,
+  billedVolumeSaved,
+  billedVolumeNrw,
+  billedVolumeNrwPercent,
+  billedVolumeProduction,
+  billedVolumeSaving,
+  dashboard,
+  exportingSummaryReport,
+  exportDateLimits,
+  exportMenuOpen,
+  exportMenuRef,
+  exportMonthOptions,
+  exportOptions,
+  onCloseExportMenu,
+  onBilledVolumeDraftChange,
+  onBilledVolumeOptionChange,
+  onExportOptionChange,
+  onExportSummaryReport,
+  onOpenApprovals,
+  onSaveBilledVolume,
+  onToggleExportMenu,
+  summaryRef,
+}) {
   return (
     <>
       <PendingApprovalNotice dashboard={dashboard} onOpenApprovals={onOpenApprovals} />
       <div className="overview-top-grid active-summary">
-        <LiveSummaryPanel dashboard={dashboard} panelRef={summaryRef} />
+        <LiveSummaryPanel
+          dashboard={dashboard}
+          exportingSummaryReport={exportingSummaryReport}
+          exportDateLimits={exportDateLimits}
+          exportMenuOpen={exportMenuOpen}
+          exportMenuRef={exportMenuRef}
+          exportMonthOptions={exportMonthOptions}
+          exportOptions={exportOptions}
+          onCloseExportMenu={onCloseExportMenu}
+          onExportOptionChange={onExportOptionChange}
+          onExportSummaryReport={onExportSummaryReport}
+          onToggleExportMenu={onToggleExportMenu}
+          panelRef={summaryRef}
+        />
+        <BilledVolumePanel
+          billedVolumeDraft={billedVolumeDraft}
+          billedVolumeMonthOptions={billedVolumeMonthOptions}
+          billedVolumeOptions={billedVolumeOptions}
+          billedVolumeYearOptions={billedVolumeYearOptions}
+          billedVolumeSaved={billedVolumeSaved}
+          billedVolumeNrw={billedVolumeNrw}
+          billedVolumeNrwPercent={billedVolumeNrwPercent}
+          billedVolumeProduction={billedVolumeProduction}
+          billedVolumeSaving={billedVolumeSaving}
+          onBilledVolumeDraftChange={onBilledVolumeDraftChange}
+          onBilledVolumeOptionChange={onBilledVolumeOptionChange}
+          onSaveBilledVolume={onSaveBilledVolume}
+        />
       </div>
     </>
   );
@@ -1439,6 +1775,7 @@ export default function OverviewScreen({
   activeSection = 'production',
   scrollRequest = 0,
   onOpenApprovals,
+  onRefresh,
   onVisibleSectionsChange,
 }) {
   const [selectedMonthlyProductionYear, setSelectedMonthlyProductionYear] = useState(() =>
@@ -1458,11 +1795,28 @@ export default function OverviewScreen({
     getStoredNumber('nemexus-daily-production-year', getCurrentYear())
   );
   const [selectedDailyProductionMonthKey, setSelectedDailyProductionMonthKey] = useState(getCurrentMonthKey);
+  const [exportingSummaryReport, setExportingSummaryReport] = useState(false);
+  const [summaryExportMenuOpen, setSummaryExportMenuOpen] = useState(false);
+  const [summaryExportOptions, setSummaryExportOptions] = useState(() => ({
+    monthKey: getCurrentMonthKey(),
+    dailyStartDate: getCurrentDateKey(),
+    dailyEndDate: getCurrentDateKey(),
+    graphStartMonthKey: `${getCurrentYear()}-01`,
+    graphEndMonthKey: getCurrentMonthKey(),
+  }));
+  const [billedVolumeOptions, setBilledVolumeOptions] = useState(() => ({
+    year: getCurrentYear(),
+    monthKey: getCurrentMonthKey(),
+  }));
+  const [billedVolumes, setBilledVolumes] = useState(getStoredBilledVolumes);
+  const [billedVolumeDraft, setBilledVolumeDraft] = useState('');
+  const [savingBilledVolume, setSavingBilledVolume] = useState(false);
   const summaryRef = useRef(null);
   const productionRef = useRef(null);
   const powerRef = useRef(null);
   const chemicalRef = useRef(null);
   const activityRef = useRef(null);
+  const summaryExportMenuRef = useRef(null);
   const monthlyProductionYearPickerRef = useRef(null);
   const dailyProductionMonthPickerRef = useRef(null);
   const powerYearPickerRef = useRef(null);
@@ -1479,6 +1833,28 @@ export default function OverviewScreen({
   const selectedYearMonths = selectedDailyProductionYearData?.months ?? dailyProductionMonths;
   const selectedDailyProduction =
     selectedYearMonths.find((month) => month.key === selectedDailyProductionMonthKey) || selectedYearMonths[0] || dailyProduction;
+  const exportDailyDateKeys = dailyProductionYears
+    .flatMap((yearData) => yearData.months ?? [])
+    .flatMap((month) => month.rows ?? [])
+    .map((row) => row.date || row.key)
+    .filter(Boolean)
+    .sort();
+  const exportDailyDateLimits = {
+    min: exportDailyDateKeys[0] || getCurrentDateKey(),
+    max: exportDailyDateKeys[exportDailyDateKeys.length - 1] || getCurrentDateKey(),
+  };
+  const requestedExportDailyStartDate = exportDailyDateKeys.includes(summaryExportOptions.dailyStartDate)
+    ? summaryExportOptions.dailyStartDate
+    : exportDailyDateLimits.max;
+  const requestedExportDailyEndDate = exportDailyDateKeys.includes(summaryExportOptions.dailyEndDate)
+    ? summaryExportOptions.dailyEndDate
+    : requestedExportDailyStartDate;
+  const exportDailyStartDate = requestedExportDailyStartDate.localeCompare(requestedExportDailyEndDate) <= 0
+    ? requestedExportDailyStartDate
+    : requestedExportDailyEndDate;
+  const exportDailyEndDate = requestedExportDailyEndDate.localeCompare(exportDailyStartDate) >= 0
+    ? requestedExportDailyEndDate
+    : exportDailyStartDate;
   const monthlyPowerConsumption = dashboard?.monthlyPowerConsumption ?? { totalPower: 0, rows: [] };
   const monthlyPowerConsumptionYears =
     dashboard?.monthlyPowerConsumptionYears ?? [{ year: selectedPowerConsumptionYear, ...monthlyPowerConsumption }];
@@ -1493,6 +1869,93 @@ export default function OverviewScreen({
     monthlyChemicalUsageYears.find((yearData) => yearData.year === selectedChemicalUsageYear) ||
     monthlyChemicalUsageYears[0] ||
     monthlyChemicalUsage;
+  const dashboardBilledVolumes = dashboard?.monthlyBilledVolumes ?? [];
+  const exportMonthOptionMap = new Map();
+  [
+    ...dailyProductionYears.flatMap((yearData) => yearData.months ?? []),
+    ...monthlyProductionYears.flatMap((yearData) => yearData.rows ?? []),
+    ...monthlyPowerConsumptionYears.flatMap((yearData) => yearData.rows ?? []),
+    ...monthlyChemicalUsageYears.flatMap((yearData) => yearData.rows ?? []),
+  ].forEach((month) => {
+    if (!month?.key) {
+      return;
+    }
+
+    const year = String(month.key).slice(0, 4);
+    exportMonthOptionMap.set(month.key, {
+      key: month.key,
+      monthLabel: month.monthLabel || month.label?.replace('\n', ' ') || `${getMonthNameFromKey(month.key)} ${year}`,
+    });
+  });
+  const currentYear = getCurrentYear();
+  const exportOptionYears = Array.from(
+    new Set([
+      currentYear,
+      ...Array.from(exportMonthOptionMap.keys()).map((key) => Number(String(key).slice(0, 4))).filter(Number.isFinite),
+    ])
+  ).sort((first, second) => first - second);
+  const paddedExportYears = new Set([
+    ...exportOptionYears,
+    currentYear - 1,
+  ]);
+  paddedExportYears.forEach((year) => {
+    Array.from({ length: 12 }, (_item, monthIndex) => {
+      const key = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+      if (!exportMonthOptionMap.has(key)) {
+        exportMonthOptionMap.set(key, {
+          key,
+          monthLabel: `${getMonthNameFromKey(key)} ${year}`,
+        });
+      }
+    });
+  });
+  const exportMonthOptions = Array.from(exportMonthOptionMap.values()).sort((first, second) => first.key.localeCompare(second.key));
+  const exportMonthKey = exportMonthOptions.some((month) => month.key === summaryExportOptions.monthKey)
+    ? summaryExportOptions.monthKey
+    : exportMonthOptions[exportMonthOptions.length - 1]?.key || getCurrentMonthKey();
+  const exportYear = Number(String(exportMonthKey).slice(0, 4)) || getCurrentYear();
+  const firstExportMonthKey = exportMonthOptions[0]?.key || `${exportYear}-01`;
+  const exportGraphStartMonthKey = exportMonthOptions.some((month) => month.key === summaryExportOptions.graphStartMonthKey)
+    ? summaryExportOptions.graphStartMonthKey
+    : firstExportMonthKey;
+  const requestedExportGraphEndMonthKey = exportMonthOptions.some((month) => month.key === summaryExportOptions.graphEndMonthKey)
+    ? summaryExportOptions.graphEndMonthKey
+    : exportMonthKey;
+  const exportGraphEndMonthKey = requestedExportGraphEndMonthKey.localeCompare(exportGraphStartMonthKey) >= 0
+    ? requestedExportGraphEndMonthKey
+    : exportGraphStartMonthKey;
+  const billedVolumeYearOptions = monthlyProductionYears.map((yearData) => Number(yearData.year)).filter(Number.isFinite).sort((first, second) => second - first);
+  const billedVolumeYear = billedVolumeYearOptions.includes(billedVolumeOptions.year)
+    ? billedVolumeOptions.year
+    : billedVolumeYearOptions[0] || getCurrentYear();
+  const billedVolumeYearData = monthlyProductionYears.find((yearData) => yearData.year === billedVolumeYear);
+  const billedVolumeMonthOptions = billedVolumeYearData?.rows?.length
+    ? billedVolumeYearData.rows.map((row) => ({
+        key: row.key,
+        monthLabel: row.label?.replace('\n', ' ') || `${getMonthNameFromKey(row.key)} ${billedVolumeYear}`,
+      }))
+    : Array.from({ length: 12 }, (_item, monthIndex) => {
+        const key = `${billedVolumeYear}-${String(monthIndex + 1).padStart(2, '0')}`;
+        return {
+          key,
+          monthLabel: `${getMonthNameFromKey(key)} ${billedVolumeYear}`,
+        };
+      });
+  const billedVolumeMonthKey = billedVolumeMonthOptions.some((month) => month.key === billedVolumeOptions.monthKey)
+    ? billedVolumeOptions.monthKey
+    : billedVolumeMonthOptions[0]?.key || `${billedVolumeYear}-01`;
+  const billedVolumeProductionRow = billedVolumeYearData?.rows?.find((row) => row.key === billedVolumeMonthKey);
+  const billedVolumeProduction = Number(billedVolumeProductionRow?.production ?? 0);
+  const billedVolumeSavedValue = billedVolumes[billedVolumeMonthKey];
+  const billedVolumeSaved = Number.isFinite(Number(billedVolumeSavedValue));
+  const billedVolumeInputValue = Number(billedVolumeDraft);
+  const billedVolumeForCalculation = Number.isFinite(billedVolumeInputValue)
+    ? billedVolumeInputValue
+    : billedVolumeSaved
+      ? Number(billedVolumeSavedValue)
+      : 0;
+  const billedVolumeNrw = Math.max(0, billedVolumeProduction - billedVolumeForCalculation);
+  const billedVolumeNrwPercent = billedVolumeProduction > 0 ? (billedVolumeNrw / billedVolumeProduction) * 100 : NaN;
   const activeDailyRows = selectedDailyProduction.rows.filter((row) => Number(row.production) > 0);
   const sectionRefs = {
     summary: summaryRef,
@@ -1517,6 +1980,7 @@ export default function OverviewScreen({
         { ref: dailyProductionMonthPickerRef, close: setDailyProductionMonthMenuOpen },
         { ref: powerYearPickerRef, close: setPowerYearMenuOpen },
         { ref: chemicalYearPickerRef, close: setChemicalYearMenuOpen },
+        { ref: summaryExportMenuRef, close: setSummaryExportMenuOpen },
       ];
 
       dropdowns.forEach(({ ref, close }) => {
@@ -1567,6 +2031,68 @@ export default function OverviewScreen({
       setSelectedDailyProductionMonthKey(selectedYearMonths[0].key);
     }
   }, [selectedDailyProductionMonthKey, selectedYearMonths]);
+
+  useEffect(() => {
+    if (
+      summaryExportOptions.monthKey !== exportMonthKey ||
+      summaryExportOptions.dailyStartDate !== exportDailyStartDate ||
+      summaryExportOptions.dailyEndDate !== exportDailyEndDate ||
+      summaryExportOptions.graphStartMonthKey !== exportGraphStartMonthKey ||
+      summaryExportOptions.graphEndMonthKey !== exportGraphEndMonthKey
+    ) {
+      setSummaryExportOptions((currentOptions) => ({
+        ...currentOptions,
+        monthKey: exportMonthKey,
+        dailyStartDate: exportDailyStartDate,
+        dailyEndDate: exportDailyEndDate,
+        graphStartMonthKey: exportGraphStartMonthKey,
+        graphEndMonthKey: exportGraphEndMonthKey,
+      }));
+    }
+  }, [
+    exportDailyEndDate,
+    exportDailyStartDate,
+    exportGraphEndMonthKey,
+    exportGraphStartMonthKey,
+    exportMonthKey,
+    summaryExportOptions.dailyEndDate,
+    summaryExportOptions.dailyStartDate,
+    summaryExportOptions.graphEndMonthKey,
+    summaryExportOptions.graphStartMonthKey,
+    summaryExportOptions.monthKey,
+  ]);
+
+  useEffect(() => {
+    if (billedVolumeOptions.year !== billedVolumeYear || billedVolumeOptions.monthKey !== billedVolumeMonthKey) {
+      setBilledVolumeOptions((currentOptions) => ({
+        ...currentOptions,
+        year: billedVolumeYear,
+        monthKey: billedVolumeMonthKey,
+      }));
+    }
+  }, [billedVolumeMonthKey, billedVolumeOptions.monthKey, billedVolumeOptions.year, billedVolumeYear]);
+
+  useEffect(() => {
+    const savedValue = billedVolumes[billedVolumeMonthKey];
+    setBilledVolumeDraft(Number.isFinite(Number(savedValue)) ? String(savedValue) : '');
+  }, [billedVolumeMonthKey, billedVolumes]);
+
+  useEffect(() => {
+    const sharedBilledVolumes = buildBilledVolumeMap(dashboardBilledVolumes);
+
+    if (!Object.keys(sharedBilledVolumes).length) {
+      return;
+    }
+
+    setBilledVolumes((currentVolumes) => {
+      const nextVolumes = {
+        ...currentVolumes,
+        ...sharedBilledVolumes,
+      };
+      setStoredBilledVolumes(nextVolumes);
+      return nextVolumes;
+    });
+  }, [dashboardBilledVolumes]);
 
   useEffect(() => {
     setStoredNumber('nemexus-monthly-production-year', selectedMonthlyProduction.year || selectedMonthlyProductionYear);
@@ -1631,11 +2157,247 @@ export default function OverviewScreen({
     };
   }, [activeSection, onVisibleSectionsChange]);
 
+  function handleSummaryExportOptionChange(nextOptions) {
+    setSummaryExportOptions((currentOptions) => {
+      const nextMonthOptions = exportMonthOptions.length
+        ? exportMonthOptions
+        : Array.from({ length: 12 }, (_item, monthIndex) => ({
+            key: `${getCurrentYear()}-${String(monthIndex + 1).padStart(2, '0')}`,
+          }));
+      const requestedMonth = nextOptions.monthKey ?? currentOptions.monthKey;
+      const nextMonthKey = nextMonthOptions.some((month) => month.key === requestedMonth)
+        ? requestedMonth
+        : nextMonthOptions[nextMonthOptions.length - 1]?.key || getCurrentMonthKey();
+      const requestedDailyStartDate = nextOptions.dailyStartDate ?? currentOptions.dailyStartDate ?? exportDailyDateLimits.max;
+      const requestedDailyEndDate = nextOptions.dailyEndDate ?? currentOptions.dailyEndDate ?? requestedDailyStartDate;
+      const normalizedDailyStartDate = exportDailyDateKeys.includes(requestedDailyStartDate)
+        ? requestedDailyStartDate
+        : exportDailyDateLimits.max;
+      const normalizedDailyEndDate = exportDailyDateKeys.includes(requestedDailyEndDate)
+        ? requestedDailyEndDate
+        : normalizedDailyStartDate;
+      const nextDailyStartDate = normalizedDailyStartDate.localeCompare(normalizedDailyEndDate) <= 0
+        ? normalizedDailyStartDate
+        : normalizedDailyEndDate;
+      const nextDailyEndDate = normalizedDailyEndDate.localeCompare(nextDailyStartDate) >= 0
+        ? normalizedDailyEndDate
+        : nextDailyStartDate;
+      const requestedGraphStartMonth = nextOptions.graphStartMonthKey ?? currentOptions.graphStartMonthKey ?? nextMonthOptions[0]?.key;
+      const nextGraphStartMonthKey = nextMonthOptions.some((month) => month.key === requestedGraphStartMonth)
+        ? requestedGraphStartMonth
+        : nextMonthOptions[0]?.key || `${getCurrentYear()}-01`;
+      const requestedGraphEndMonth = nextOptions.graphEndMonthKey ?? currentOptions.graphEndMonthKey ?? nextMonthKey;
+      const normalizedGraphEndMonthKey = nextMonthOptions.some((month) => month.key === requestedGraphEndMonth)
+        ? requestedGraphEndMonth
+        : nextMonthKey;
+      const nextGraphEndMonthKey = normalizedGraphEndMonthKey.localeCompare(nextGraphStartMonthKey) >= 0
+        ? normalizedGraphEndMonthKey
+        : nextGraphStartMonthKey;
+
+      return {
+        ...currentOptions,
+        ...nextOptions,
+        monthKey: nextMonthKey,
+        dailyStartDate: nextDailyStartDate,
+        dailyEndDate: nextDailyEndDate,
+        graphStartMonthKey: nextGraphStartMonthKey,
+        graphEndMonthKey: nextGraphEndMonthKey,
+      };
+    });
+  }
+
+  function handleBilledVolumeOptionChange(nextOptions) {
+    setBilledVolumeOptions((currentOptions) => {
+      const nextYear = nextOptions.year ?? currentOptions.year;
+      const nextYearData = monthlyProductionYears.find((yearData) => yearData.year === nextYear);
+      const nextMonthOptions = nextYearData?.rows?.length
+        ? nextYearData.rows
+        : Array.from({ length: 12 }, (_item, monthIndex) => ({
+            key: `${nextYear}-${String(monthIndex + 1).padStart(2, '0')}`,
+          }));
+      const requestedMonth = nextOptions.monthKey ?? currentOptions.monthKey;
+      const nextMonthKey = nextMonthOptions.some((month) => month.key === requestedMonth)
+        ? requestedMonth
+        : nextMonthOptions[0]?.key || `${nextYear}-01`;
+
+      return {
+        ...currentOptions,
+        ...nextOptions,
+        year: nextYear,
+        monthKey: nextMonthKey,
+      };
+    });
+  }
+
+  async function handleSaveBilledVolume(event) {
+    event.preventDefault();
+
+    const nextValue = Number(billedVolumeDraft);
+    if (!Number.isFinite(nextValue) || nextValue < 0) {
+      window.alert('Enter a valid billed volume.');
+      return;
+    }
+
+    setSavingBilledVolume(true);
+
+    try {
+      await saveMonthlyBilledVolume({
+        monthKey: billedVolumeMonthKey,
+        billedVolumeM3: nextValue,
+      });
+
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (error) {
+      window.alert(error?.message || 'Saved locally only. Add the monthly billed volume table to share this with other users.');
+    } finally {
+      setBilledVolumes((currentVolumes) => {
+        const nextVolumes = {
+          ...currentVolumes,
+          [billedVolumeMonthKey]: nextValue,
+        };
+        setStoredBilledVolumes(nextVolumes);
+        return nextVolumes;
+      });
+      setSavingBilledVolume(false);
+    }
+  }
+
+  function getReportTrendData(yearData, monthKey, totalKeys, yearDataCollection = []) {
+    const reportYear = Number(yearData?.year ?? String(monthKey || '').slice(0, 4));
+    const previousDecemberKey = Number.isFinite(reportYear) ? `${reportYear - 1}-12` : '';
+    const previousYearData = yearDataCollection.find((item) => Number(item?.year) === reportYear - 1);
+    const previousDecemberRow = previousYearData?.rows?.find((item) => item.key === previousDecemberKey);
+    const rows = [
+      ...(previousDecemberRow ? [previousDecemberRow] : []),
+      ...(yearData?.rows ?? []),
+    ];
+    const row = rows.find((item) => item.key === monthKey);
+    const trendRows = rows.filter((item) => String(item.key || '').localeCompare(monthKey) <= 0);
+
+    return {
+      ...(yearData ?? {}),
+      rows: trendRows.length ? trendRows : row ? [row] : [],
+      ...totalKeys.reduce((totals, { source, target }) => {
+        totals[target] = row ? Number(row[source] ?? 0) : 0;
+        return totals;
+      }, {}),
+    };
+  }
+
+  function getReportDailyProductionData(startDate, endDate, fallbackMonth) {
+    const allDailyRows = dailyProductionYears
+      .flatMap((yearData) => yearData.months ?? [])
+      .flatMap((month) => month.rows ?? [])
+      .filter((row) => {
+        const rowDate = row.date || row.key;
+        return rowDate && String(rowDate).localeCompare(startDate) >= 0 && String(rowDate).localeCompare(endDate) <= 0;
+      })
+      .sort((first, second) => String(first.key || first.date || first.label || '').localeCompare(String(second.key || second.date || second.label || '')));
+    const rows = allDailyRows.length ? allDailyRows : fallbackMonth?.rows ?? [];
+    const rangeLabel = startDate === endDate
+      ? getDateLabelFromKey(startDate)
+      : `${getDateLabelFromKey(startDate)} - ${getDateLabelFromKey(endDate)}`;
+
+    return {
+      ...(fallbackMonth ?? {}),
+      key: startDate === endDate ? startDate : `${startDate}_${endDate}`,
+      monthLabel: rangeLabel,
+      totalProduction: rows.reduce((total, row) => total + Number(row.production ?? 0), 0),
+      rows,
+    };
+  }
+
+  async function handleSummaryReportExport() {
+    setExportingSummaryReport(true);
+
+    try {
+      const reportDailyStartDate = exportDailyStartDate;
+      const reportDailyEndDate = exportDailyEndDate;
+      const reportGraphStartMonthKey = exportGraphStartMonthKey;
+      const reportGraphEndMonthKey = exportGraphEndMonthKey;
+      const reportYear = Number(String(reportGraphEndMonthKey).slice(0, 4)) || exportYear;
+      const reportMonthKey = String(reportDailyStartDate || getCurrentDateKey()).slice(0, 7);
+      const reportMonth = exportMonthOptions.find((month) => month.key === reportMonthKey);
+      const productionYearData =
+        monthlyProductionYears.find((yearData) => yearData.year === reportYear) || selectedMonthlyProduction;
+      const dailyYearData = dailyProductionYears.find((yearData) => yearData.year === reportYear);
+      const dailyMonthData =
+        dailyYearData?.months?.find((month) => month.key === reportMonthKey) || reportMonth || selectedDailyProduction;
+      const dailyProductionData = getReportDailyProductionData(reportDailyStartDate, reportDailyEndDate, dailyMonthData);
+      const powerYearData =
+        monthlyPowerConsumptionYears.find((yearData) => yearData.year === reportYear) || selectedPowerConsumption;
+      const chemicalYearData =
+        monthlyChemicalUsageYears.find((yearData) => yearData.year === reportYear) || selectedChemicalUsage;
+      const reportPeriodLabel = dailyProductionData.monthLabel || getMonthYearLabelFromKey(reportMonthKey);
+
+      await exportSummaryReportPptx({
+        selectedMonthlyProduction: getReportTrendData(productionYearData, reportGraphEndMonthKey, [
+          { source: 'production', target: 'totalProduction' },
+          { source: 'production', target: 'averageProduction' },
+        ], monthlyProductionYears),
+        selectedBilledVolumes: billedVolumes,
+        selectedDailyProduction: dailyProductionData,
+        selectedPowerConsumption: getReportTrendData(powerYearData, reportGraphEndMonthKey, [{ source: 'totalPower', target: 'totalPower' }], monthlyPowerConsumptionYears),
+        selectedChemicalUsage: getReportTrendData(chemicalYearData, reportGraphEndMonthKey, [
+          { source: 'chlorineUsage', target: 'totalChlorine' },
+          { source: 'peroxideUsage', target: 'totalPeroxide' },
+        ], monthlyChemicalUsageYears),
+        context: {
+          reportScope: 'monthly',
+          reportPeriodLabel,
+          dailyStartDate: reportDailyStartDate,
+          dailyEndDate: reportDailyEndDate,
+          graphStartMonthKey: reportGraphStartMonthKey,
+          graphEndMonthKey: reportGraphEndMonthKey,
+          productionYear: reportYear,
+          powerYear: reportYear,
+          chemicalYear: reportYear,
+        },
+      });
+      setSummaryExportMenuOpen(false);
+    } catch (error) {
+      window.alert(error?.message || 'Failed to export summary report.');
+    } finally {
+      setExportingSummaryReport(false);
+    }
+  }
+
   return (
     <>
       <OverviewTopPanels
+        billedVolumeDraft={billedVolumeDraft}
+        billedVolumeMonthOptions={billedVolumeMonthOptions}
+        billedVolumeOptions={{ ...billedVolumeOptions, year: billedVolumeYear, monthKey: billedVolumeMonthKey }}
+        billedVolumeYearOptions={billedVolumeYearOptions}
+        billedVolumeSaved={billedVolumeSaved}
+        billedVolumeNrw={billedVolumeNrw}
+        billedVolumeNrwPercent={billedVolumeNrwPercent}
+        billedVolumeProduction={billedVolumeProduction}
+        billedVolumeSaving={savingBilledVolume}
         dashboard={dashboard}
+        exportingSummaryReport={exportingSummaryReport}
+        exportDateLimits={exportDailyDateLimits}
+        exportMenuOpen={summaryExportMenuOpen}
+        exportMenuRef={summaryExportMenuRef}
+        exportMonthOptions={exportMonthOptions}
+        exportOptions={{
+          ...summaryExportOptions,
+          monthKey: exportMonthKey,
+          dailyStartDate: exportDailyStartDate,
+          dailyEndDate: exportDailyEndDate,
+          graphStartMonthKey: exportGraphStartMonthKey,
+          graphEndMonthKey: exportGraphEndMonthKey,
+        }}
+        onCloseExportMenu={() => setSummaryExportMenuOpen(false)}
+        onBilledVolumeDraftChange={setBilledVolumeDraft}
+        onBilledVolumeOptionChange={handleBilledVolumeOptionChange}
+        onExportOptionChange={handleSummaryExportOptionChange}
+        onExportSummaryReport={handleSummaryReportExport}
         onOpenApprovals={onOpenApprovals}
+        onSaveBilledVolume={handleSaveBilledVolume}
+        onToggleExportMenu={() => setSummaryExportMenuOpen((isOpen) => !isOpen)}
         summaryRef={summaryRef}
       />
       <section className="chart-grid">

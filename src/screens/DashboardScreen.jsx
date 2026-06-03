@@ -552,6 +552,7 @@ export default function DashboardScreen({
         refreshing={refreshing}
         activeSection={dashboardSection}
         scrollRequest={dashboardScrollRequest}
+        onRefresh={onRefresh}
         onVisibleSectionsChange={setVisibleDashboardSections}
         onOpenApprovals={() => {
           onNavigate('approvals');

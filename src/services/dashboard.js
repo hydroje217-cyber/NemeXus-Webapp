@@ -32,6 +32,7 @@ const LOGIN_LOG_SELECT =
   'id, user_id, email, role, browser, device, user_agent, created_at, profile:profiles(full_name, email)';
 const LOGIN_LOG_FALLBACK_SELECT = 'id, user_id, email, role, browser, device, user_agent, created_at';
 const LEGACY_LOGIN_LOG_SELECT = 'id, profile_id, email, full_name, role, logged_in_at, user_agent';
+const MONTHLY_BILLED_VOLUME_SELECT = 'id, month_key, billed_volume_m3, created_at, updated_at';
 const ANALYTICS_YEAR_COUNT = 2;
 
 function startOfTodayIso() {
@@ -481,6 +482,19 @@ async function fetchLoginLogs() {
     .limit(100);
 }
 
+async function fetchMonthlyBilledVolumes() {
+  const result = await supabase
+    .from('monthly_billed_volumes')
+    .select(MONTHLY_BILLED_VOLUME_SELECT)
+    .order('month_key', { ascending: true });
+
+  if (result.error) {
+    return [];
+  }
+
+  return result.data ?? [];
+}
+
 export function normalizeRole(role) {
   if (role === 'general manager') {
     return GENERAL_MANAGER_ROLE;
@@ -558,6 +572,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     loginLogs,
     operators,
     monthlySummaries,
+    monthlyBilledVolumes,
     analyticsRawReadings,
   ] = await Promise.all([
     supabase
@@ -608,6 +623,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .gte('summary_date', analyticsRange.summaryFromDate)
       .lte('summary_date', analyticsRange.summaryToDate)
       .order('summary_date', { ascending: true }),
+    fetchMonthlyBilledVolumes(),
     loadRawReadings({
       fromIso: analyticsRange.readingFromIso,
       toIso: analyticsRange.readingToIso,
@@ -654,6 +670,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     operators: (operators.data ?? []).map(normalizeProfile),
     monthlyProduction: buildMonthlyProduction(monthlyChlorination, { dailySummaries }),
     monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination, { dailySummaries }),
+    monthlyBilledVolumes,
     dailyProduction: buildDailyProduction(monthlyChlorination, { dailySummaries }),
     dailyProductionMonths: buildDailyProductionMonths(monthlyChlorination, { dailySummaries }),
     dailyProductionYears: buildDailyProductionYears(monthlyChlorination, { dailySummaries }),
@@ -672,6 +689,45 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       deepwellReadings: monthlyDeepwell,
     }, { dailySummaries }),
   };
+}
+
+export async function saveMonthlyBilledVolume({ monthKey, billedVolumeM3 }) {
+  const parsedVolume = Number(billedVolumeM3);
+
+  if (!monthKey || !/^\d{4}-\d{2}$/.test(String(monthKey))) {
+    throw new Error('Choose a valid billed volume month.');
+  }
+
+  if (!Number.isFinite(parsedVolume) || parsedVolume < 0) {
+    throw new Error('Enter a valid billed volume.');
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const userId = userData?.user?.id;
+
+  if (userError || !userId) {
+    throw new Error(userError?.message || 'You must be signed in to save billed volume.');
+  }
+
+  const { data, error } = await supabase
+    .from('monthly_billed_volumes')
+    .upsert(
+      {
+        month_key: monthKey,
+        billed_volume_m3: parsedVolume,
+        created_by: userId,
+        updated_by: userId,
+      },
+      { onConflict: 'month_key' }
+    )
+    .select(MONTHLY_BILLED_VOLUME_SELECT)
+    .single();
+
+  if (error) {
+    throw new Error(error.message || 'Failed to save billed volume.');
+  }
+
+  return data;
 }
 
 export async function recordAccountLogin({ userAgent } = {}) {

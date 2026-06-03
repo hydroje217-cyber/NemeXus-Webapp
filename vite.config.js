@@ -42,6 +42,10 @@ export default defineConfig({
             return 'export-archive';
           }
 
+          if (id.includes('pptxgenjs')) {
+            return 'export-pptx';
+          }
+
           return undefined;
         },
       },
