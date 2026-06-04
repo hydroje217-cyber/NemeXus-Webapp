@@ -9,6 +9,7 @@ import {
   Droplets,
   Eye,
   EyeOff,
+  FileText,
   FlaskConical,
   History,
   Loader2,
@@ -29,6 +30,7 @@ import ApprovalsScreen from './ApprovalsScreen';
 import LoginLogsScreen from './LoginLogsScreen';
 import OverviewScreen, { buildOperationAlerts } from './OverviewScreen';
 import ReadingsScreen from './ReadingsScreen';
+import SummaryReportScreen, { loadSummaryReportInputs } from './SummaryReportScreen';
 import { formatRoleLabel } from '../services/dashboard';
 import {
   loadNotificationDismissedKeys,
@@ -260,6 +262,7 @@ function getTabs(isAdmin) {
   const tabs = [
     { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { key: 'readings', label: 'Readings', icon: Droplets },
+    { key: 'summary-report', label: 'Summary Report', icon: FileText },
   ];
 
   if (isAdmin) {
@@ -382,6 +385,7 @@ export default function DashboardScreen({
   const [dashboardSection, setDashboardSection] = useState('summary');
   const [visibleDashboardSections, setVisibleDashboardSections] = useState(['summary']);
   const [dashboardScrollRequest, setDashboardScrollRequest] = useState(0);
+  const [summaryReportInputs, setSummaryReportInputs] = useState(loadSummaryReportInputs);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isEditAccountOpen, setIsEditAccountOpen] = useState(false);
@@ -510,6 +514,16 @@ export default function DashboardScreen({
       );
     }
 
+    if (activeView === 'summary-report') {
+      return (
+        <SummaryReportScreen
+          dashboard={dashboard}
+          reportInputs={summaryReportInputs}
+          onReportInputsChange={setSummaryReportInputs}
+        />
+      );
+    }
+
     if (activeView === 'approvals' && isAdmin) {
       return (
         <ApprovalsScreen
@@ -549,6 +563,7 @@ export default function DashboardScreen({
     return (
       <OverviewScreen
         dashboard={dashboard}
+        summaryReportInputs={summaryReportInputs}
         refreshing={refreshing}
         activeSection={dashboardSection}
         scrollRequest={dashboardScrollRequest}

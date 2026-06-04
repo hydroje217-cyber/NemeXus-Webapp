@@ -16,6 +16,8 @@ import { saveMonthlyBilledVolume } from '../services/dashboard';
 import { exportSummaryReportPptx } from '../utils/summaryPptxExport';
 
 const DAILY_PRODUCTION_DEFAULT_DAYS = 7;
+const MONTH_SHORT_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const WEEKDAY_SHORT_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DEFAULT_BILLED_VOLUMES = {
   '2025-12': 5895.89,
   '2026-01': 7615.38,
@@ -174,6 +176,17 @@ function getMonthYearLabelFromKey(monthKey) {
   return `${getMonthNameFromKey(monthKey)} ${Number.isFinite(year) ? year : getCurrentYear()}`;
 }
 
+function getCompactMonthYearLabelFromKey(monthKey) {
+  const [year, month] = String(monthKey || '').split('-').map(Number);
+
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return monthKey || '-';
+  }
+
+  const monthLabel = new Date(year, month - 1, 1).toLocaleString('en-US', { month: 'short' });
+  return `${monthLabel}-${String(year).slice(-2)}`;
+}
+
 function getDateLabelFromKey(dateKey) {
   if (!dateKey) {
     return '-';
@@ -189,6 +202,22 @@ function getDateLabelFromKey(dateKey) {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+function getDatePartsFromKey(dateKey) {
+  const [year, month, day] = String(dateKey || '').split('-').map(Number);
+
+  return Number.isFinite(year) && Number.isFinite(month)
+    ? { year, month, day: Number.isFinite(day) ? day : 1 }
+    : null;
+}
+
+function getDateKeyFromParts(year, month, day) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function getMonthKeyFromParts(year, month) {
+  return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 function YearDropdown({ classPrefix, isOpen, onToggle, onSelect, pickerRef, selectedYear, years }) {
@@ -811,59 +840,169 @@ function PendingApprovalNotice({ dashboard, onOpenApprovals }) {
   );
 }
 
-function SummaryMonthPicker({ label, monthOptions = [], value, onChange }) {
+function SummaryMonthPicker({ activePickerId, label, monthOptions = [], pickerId, setActivePickerId, value, onChange }) {
   const selectedOption = monthOptions.find((month) => month.key === value) || monthOptions[0];
   const monthKeys = monthOptions.map((month) => month.key).filter(Boolean).sort();
   const selectedMonthKey = selectedOption?.key || value || getCurrentMonthKey();
+  const selectedParts = getDatePartsFromKey(`${selectedMonthKey}-01`) || getDatePartsFromKey(`${getCurrentMonthKey()}-01`);
+  const [viewYear, setViewYear] = useState(selectedParts.year);
+  const minMonthKey = monthKeys[0];
+  const maxMonthKey = monthKeys[monthKeys.length - 1];
+  const isOpen = activePickerId === pickerId;
+
+  useEffect(() => {
+    setViewYear(selectedParts.year);
+  }, [selectedParts.year]);
+
+  const canMoveToPreviousYear = !minMonthKey || getMonthKeyFromParts(viewYear - 1, 12) >= minMonthKey;
+  const canMoveToNextYear = !maxMonthKey || getMonthKeyFromParts(viewYear + 1, 1) <= maxMonthKey;
 
   return (
     <div className="summary-export-field summary-month-picker">
       <span>{label}</span>
-      <input
-        type="month"
-        value={selectedMonthKey}
-        min={monthKeys[0]}
-        max={monthKeys[monthKeys.length - 1]}
+      <button
+        type="button"
+        className="summary-picker-trigger summary-month-trigger"
         aria-label={label}
+        aria-expanded={isOpen}
         title={getMonthYearLabelFromKey(selectedMonthKey)}
-        onChange={(event) => onChange(event.target.value)}
-      />
+        onClick={() => setActivePickerId(isOpen ? null : pickerId)}
+      >
+        <strong>{getMonthYearLabelFromKey(selectedMonthKey)}</strong>
+        <ChevronDown size={15} />
+      </button>
+      {isOpen ? (
+        <div className="summary-month-panel">
+          <div className="summary-month-head">
+            <button type="button" disabled={!canMoveToPreviousYear} aria-label="Previous year" onClick={() => setViewYear((year) => year - 1)}>
+              <ChevronDown size={16} />
+            </button>
+            <strong>{viewYear}</strong>
+            <button type="button" disabled={!canMoveToNextYear} aria-label="Next year" onClick={() => setViewYear((year) => year + 1)}>
+              <ChevronDown size={16} />
+            </button>
+          </div>
+          <div className="summary-month-grid">
+            {MONTH_SHORT_LABELS.map((monthLabel, index) => {
+              const monthKey = getMonthKeyFromParts(viewYear, index + 1);
+              const disabled = (minMonthKey && monthKey < minMonthKey) || (maxMonthKey && monthKey > maxMonthKey);
+
+              return (
+                <button
+                  type="button"
+                  className={monthKey === selectedMonthKey ? 'active' : undefined}
+                  disabled={disabled}
+                  key={monthKey}
+                  onClick={() => {
+                    onChange(monthKey);
+                    setActivePickerId(null);
+                  }}
+                >
+                  {monthLabel}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function SummaryDatePicker({ label, value, min, max, onChange }) {
+function SummaryDatePicker({ activePickerId, label, pickerId, setActivePickerId, value, min, max, onChange }) {
   const selectedDateKey = value || max || getCurrentDateKey();
+  const selectedParts = getDatePartsFromKey(selectedDateKey) || getDatePartsFromKey(getCurrentDateKey());
+  const [viewMonthKey, setViewMonthKey] = useState(getMonthKeyFromParts(selectedParts.year, selectedParts.month));
+  const viewParts = getDatePartsFromKey(`${viewMonthKey}-01`) || selectedParts;
+  const isOpen = activePickerId === pickerId;
+  const minMonthKey = min ? min.slice(0, 7) : '';
+  const maxMonthKey = max ? max.slice(0, 7) : '';
+  const daysInMonth = new Date(viewParts.year, viewParts.month, 0).getDate();
+  const firstWeekday = new Date(viewParts.year, viewParts.month - 1, 1).getDay();
+  const dayCells = [
+    ...Array.from({ length: firstWeekday }, (_, index) => ({ key: `blank-${index}` })),
+    ...Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+      const dateKey = getDateKeyFromParts(viewParts.year, viewParts.month, day);
+
+      return {
+        day,
+        disabled: (min && dateKey < min) || (max && dateKey > max),
+        key: dateKey,
+      };
+    }),
+  ];
+
+  useEffect(() => {
+    setViewMonthKey(getMonthKeyFromParts(selectedParts.year, selectedParts.month));
+  }, [selectedParts.year, selectedParts.month]);
+
+  function shiftViewMonth(offset) {
+    setViewMonthKey((currentMonthKey) => {
+      const parts = getDatePartsFromKey(`${currentMonthKey}-01`) || selectedParts;
+      const nextDate = new Date(parts.year, parts.month - 1 + offset, 1);
+
+      return getMonthKeyFromParts(nextDate.getFullYear(), nextDate.getMonth() + 1);
+    });
+  }
 
   return (
     <div className="summary-export-field summary-date-picker">
       <span>{label}</span>
-      <input
-        type="date"
-        value={selectedDateKey}
-        min={min}
-        max={max}
+      <button
+        type="button"
+        className="summary-picker-trigger summary-date-trigger"
         aria-label={label}
+        aria-expanded={isOpen}
         title={getDateLabelFromKey(selectedDateKey)}
-        onChange={(event) => onChange(event.target.value)}
-      />
+        onClick={() => setActivePickerId(isOpen ? null : pickerId)}
+      >
+        <strong>{getDateLabelFromKey(selectedDateKey)}</strong>
+        <CalendarDays size={15} />
+      </button>
+      {isOpen ? (
+        <div className="summary-month-panel summary-date-panel">
+          <div className="summary-month-head summary-date-head">
+            <button type="button" disabled={minMonthKey && viewMonthKey <= minMonthKey} aria-label="Previous month" onClick={() => shiftViewMonth(-1)}>
+              <ChevronDown size={16} />
+            </button>
+            <strong>{getMonthYearLabelFromKey(viewMonthKey)}</strong>
+            <button type="button" disabled={maxMonthKey && viewMonthKey >= maxMonthKey} aria-label="Next month" onClick={() => shiftViewMonth(1)}>
+              <ChevronDown size={16} />
+            </button>
+          </div>
+          <div className="summary-date-weekdays">
+            {WEEKDAY_SHORT_LABELS.map((weekday) => (
+              <span key={weekday}>{weekday}</span>
+            ))}
+          </div>
+          <div className="summary-date-grid">
+            {dayCells.map((cell) => cell.day ? (
+              <button
+                type="button"
+                className={cell.key === selectedDateKey ? 'active' : undefined}
+                disabled={cell.disabled}
+                key={cell.key}
+                onClick={() => {
+                  onChange(cell.key);
+                  setActivePickerId(null);
+                }}
+              >
+                {cell.day}
+              </button>
+            ) : (
+              <span aria-hidden="true" key={cell.key} />
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function LiveSummaryPanel({
   dashboard,
-  exportingSummaryReport = false,
-  exportMenuOpen = false,
-  exportDateLimits,
-  exportOptions,
-  exportMonthOptions = [],
-  onCloseExportMenu,
-  onExportOptionChange,
-  onExportSummaryReport,
-  onToggleExportMenu,
   panelRef,
-  exportMenuRef,
 }) {
   const stats = dashboard?.stats ?? {};
   const summaryItems = [
@@ -885,67 +1024,6 @@ function LiveSummaryPanel({
             <h3>Live summary</h3>
             <p>Registrations, approvals, sites, and reading activity.</p>
           </div>
-        </div>
-        <div className="summary-export-menu" ref={exportMenuRef}>
-          <button
-            type="button"
-            className="summary-export-button"
-            disabled={exportingSummaryReport}
-            onClick={onToggleExportMenu}
-            title="Export summary report to PowerPoint"
-            aria-expanded={exportMenuOpen}
-          >
-            <Download size={16} />
-            <span>{exportingSummaryReport ? 'Exporting...' : 'Export'}</span>
-            <ChevronDown size={15} />
-          </button>
-          {exportMenuOpen ? (
-            <div className="summary-export-panel">
-              <div className="summary-export-range-row">
-                <SummaryDatePicker
-                  label="Daily date from"
-                  value={exportOptions.dailyStartDate}
-                  min={exportDateLimits?.min}
-                  max={exportDateLimits?.max}
-                  onChange={(dailyStartDate) => onExportOptionChange({ dailyStartDate })}
-                />
-
-                <SummaryDatePicker
-                  label="Daily date to"
-                  value={exportOptions.dailyEndDate}
-                  min={exportDateLimits?.min}
-                  max={exportDateLimits?.max}
-                  onChange={(dailyEndDate) => onExportOptionChange({ dailyEndDate })}
-                />
-              </div>
-
-              <div className="summary-export-range-row">
-                <SummaryMonthPicker
-                  label="Monthly graphs from"
-                  monthOptions={exportMonthOptions}
-                  value={exportOptions.graphStartMonthKey}
-                  onChange={(graphStartMonthKey) => onExportOptionChange({ graphStartMonthKey })}
-                />
-
-                <SummaryMonthPicker
-                  label="Monthly graphs to"
-                  monthOptions={exportMonthOptions}
-                  value={exportOptions.graphEndMonthKey}
-                  onChange={(graphEndMonthKey) => onExportOptionChange({ graphEndMonthKey })}
-                />
-              </div>
-
-              <div className="summary-export-actions">
-                <button type="button" className="summary-export-cancel" onClick={onCloseExportMenu}>
-                  Cancel
-                </button>
-                <button type="button" className="summary-export-confirm" disabled={exportingSummaryReport} onClick={onExportSummaryReport}>
-                  <Download size={15} />
-                  PPTX
-                </button>
-              </div>
-            </div>
-          ) : null}
         </div>
       </header>
       <div className="live-summary-grid">
@@ -970,7 +1048,6 @@ function LiveSummaryPanel({
 
 function BilledVolumePanel({
   billedVolumeDraft,
-  billedVolumeMonthOptions = [],
   billedVolumeOptions,
   billedVolumeYearOptions = [],
   billedVolumeSaved,
@@ -982,6 +1059,35 @@ function BilledVolumePanel({
   onBilledVolumeOptionChange,
   onSaveBilledVolume,
 }) {
+  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(billedVolumeOptions.year || getCurrentYear());
+  const pickerRef = useRef(null);
+  const availableYears = billedVolumeYearOptions.length ? billedVolumeYearOptions : [billedVolumeOptions.year || getCurrentYear()];
+  const sortedYears = [...availableYears].sort((first, second) => first - second);
+  const currentYearIndex = sortedYears.indexOf(viewYear);
+  const previousYear = currentYearIndex > 0 ? sortedYears[currentYearIndex - 1] : null;
+  const nextYear = currentYearIndex >= 0 && currentYearIndex < sortedYears.length - 1 ? sortedYears[currentYearIndex + 1] : null;
+
+  useEffect(() => {
+    setViewYear(billedVolumeOptions.year || getCurrentYear());
+  }, [billedVolumeOptions.year]);
+
+  useEffect(() => {
+    function closeOutside(event) {
+      if (pickerRef.current && !pickerRef.current.contains(event.target)) {
+        setMonthPickerOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', closeOutside);
+    document.addEventListener('focusin', closeOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', closeOutside);
+      document.removeEventListener('focusin', closeOutside);
+    };
+  }, []);
+
   return (
     <section className="billed-volume-panel">
       <header className="operation-alerts-heading billed-volume-heading">
@@ -995,42 +1101,80 @@ function BilledVolumePanel({
       </header>
 
       <form className="billed-volume-form" onSubmit={onSaveBilledVolume}>
-        <div className="billed-volume-controls">
-          <label className="billed-volume-field">
-            <span>Year</span>
-            <select value={billedVolumeOptions.year} onChange={(event) => onBilledVolumeOptionChange({ year: Number(event.target.value) })}>
-              {billedVolumeYearOptions.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
-            </select>
+        <div className="billed-volume-entry-row">
+          <div className="billed-volume-field billed-volume-month-field" ref={pickerRef}>
+            <span>Month-Year</span>
+            <button
+              type="button"
+              className="billed-volume-month-trigger"
+              aria-expanded={monthPickerOpen}
+              onClick={() => setMonthPickerOpen((isOpen) => !isOpen)}
+            >
+              <strong>{getCompactMonthYearLabelFromKey(billedVolumeOptions.monthKey)}</strong>
+              <ChevronDown size={16} />
+            </button>
+            {monthPickerOpen ? (
+              <div className="billed-volume-month-panel">
+                <div className="billed-volume-month-head">
+                  <button
+                    type="button"
+                    aria-label="Previous year"
+                    disabled={!previousYear}
+                    onClick={() => previousYear && setViewYear(previousYear)}
+                  >
+                    <ChevronDown size={16} />
+                  </button>
+                  <strong>{viewYear}</strong>
+                  <button
+                    type="button"
+                    aria-label="Next year"
+                    disabled={!nextYear}
+                    onClick={() => nextYear && setViewYear(nextYear)}
+                  >
+                    <ChevronDown size={16} />
+                  </button>
+                </div>
+                <div className="billed-volume-month-grid">
+                  {MONTH_SHORT_LABELS.map((monthLabel, monthIndex) => {
+                    const monthKey = `${viewYear}-${String(monthIndex + 1).padStart(2, '0')}`;
+
+                    return (
+                      <button
+                        type="button"
+                        className={monthKey === billedVolumeOptions.monthKey ? 'active' : undefined}
+                        key={monthKey}
+                        onClick={() => {
+                          onBilledVolumeOptionChange({ year: viewYear, monthKey });
+                          setMonthPickerOpen(false);
+                        }}
+                      >
+                        {monthLabel}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <label className="billed-volume-field billed-volume-input-field">
+            <span>Billed Volume m3</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={billedVolumeDraft}
+              onChange={(event) => onBilledVolumeDraftChange(event.target.value)}
+              placeholder="0.00"
+            />
           </label>
 
-          <label className="billed-volume-field">
-            <span>Month</span>
-            <select value={billedVolumeOptions.monthKey} onChange={(event) => onBilledVolumeOptionChange({ monthKey: event.target.value })}>
-              {billedVolumeMonthOptions.map((month) => (
-                <option key={month.key} value={month.key}>
-                  {month.monthLabel || `${getMonthNameFromKey(month.key)} ${String(month.key).slice(0, 4)}`}
-                </option>
-              ))}
-            </select>
-          </label>
+          <button type="submit" className="billed-volume-save-button">
+            <Save size={15} />
+            {billedVolumeSaving ? 'Saving...' : 'Save'}
+          </button>
         </div>
-
-        <label className="billed-volume-field billed-volume-input-field">
-          <span>Billed Volume m3</span>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            inputMode="decimal"
-            value={billedVolumeDraft}
-            onChange={(event) => onBilledVolumeDraftChange(event.target.value)}
-            placeholder="0.00"
-          />
-        </label>
 
         <div className="billed-volume-results">
           <div>
@@ -1047,13 +1191,7 @@ function BilledVolumePanel({
           </div>
         </div>
 
-        <div className="billed-volume-actions">
-          <p>{billedVolumeSaved ? `Saved for ${getMonthNameFromKey(billedVolumeOptions.monthKey)} ${billedVolumeOptions.year}` : 'No billed volume saved for this month.'}</p>
-          <button type="submit">
-            <Save size={15} />
-            {billedVolumeSaving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
+        <p className="billed-volume-status">{billedVolumeSaved ? `Saved for ${getCompactMonthYearLabelFromKey(billedVolumeOptions.monthKey)}` : 'No billed volume saved for this month.'}</p>
       </form>
     </section>
   );
@@ -1070,20 +1208,10 @@ function OverviewTopPanels({
   billedVolumeProduction,
   billedVolumeSaving,
   dashboard,
-  exportingSummaryReport,
-  exportDateLimits,
-  exportMenuOpen,
-  exportMenuRef,
-  exportMonthOptions,
-  exportOptions,
-  onCloseExportMenu,
   onBilledVolumeDraftChange,
   onBilledVolumeOptionChange,
-  onExportOptionChange,
-  onExportSummaryReport,
   onOpenApprovals,
   onSaveBilledVolume,
-  onToggleExportMenu,
   summaryRef,
 }) {
   return (
@@ -1092,16 +1220,6 @@ function OverviewTopPanels({
       <div className="overview-top-grid active-summary">
         <LiveSummaryPanel
           dashboard={dashboard}
-          exportingSummaryReport={exportingSummaryReport}
-          exportDateLimits={exportDateLimits}
-          exportMenuOpen={exportMenuOpen}
-          exportMenuRef={exportMenuRef}
-          exportMonthOptions={exportMonthOptions}
-          exportOptions={exportOptions}
-          onCloseExportMenu={onCloseExportMenu}
-          onExportOptionChange={onExportOptionChange}
-          onExportSummaryReport={onExportSummaryReport}
-          onToggleExportMenu={onToggleExportMenu}
           panelRef={summaryRef}
         />
         <BilledVolumePanel
@@ -1771,6 +1889,7 @@ function RecentReadingsPanel({ readings }) {
 
 export default function OverviewScreen({
   dashboard,
+  summaryReportInputs = {},
   refreshing = false,
   activeSection = 'production',
   scrollRequest = 0,
@@ -2351,6 +2470,7 @@ export default function OverviewScreen({
           dailyEndDate: reportDailyEndDate,
           graphStartMonthKey: reportGraphStartMonthKey,
           graphEndMonthKey: reportGraphEndMonthKey,
+          reportInputs: summaryReportInputs,
           productionYear: reportYear,
           powerYear: reportYear,
           chemicalYear: reportYear,
@@ -2377,27 +2497,10 @@ export default function OverviewScreen({
         billedVolumeProduction={billedVolumeProduction}
         billedVolumeSaving={savingBilledVolume}
         dashboard={dashboard}
-        exportingSummaryReport={exportingSummaryReport}
-        exportDateLimits={exportDailyDateLimits}
-        exportMenuOpen={summaryExportMenuOpen}
-        exportMenuRef={summaryExportMenuRef}
-        exportMonthOptions={exportMonthOptions}
-        exportOptions={{
-          ...summaryExportOptions,
-          monthKey: exportMonthKey,
-          dailyStartDate: exportDailyStartDate,
-          dailyEndDate: exportDailyEndDate,
-          graphStartMonthKey: exportGraphStartMonthKey,
-          graphEndMonthKey: exportGraphEndMonthKey,
-        }}
-        onCloseExportMenu={() => setSummaryExportMenuOpen(false)}
         onBilledVolumeDraftChange={setBilledVolumeDraft}
         onBilledVolumeOptionChange={handleBilledVolumeOptionChange}
-        onExportOptionChange={handleSummaryExportOptionChange}
-        onExportSummaryReport={handleSummaryReportExport}
         onOpenApprovals={onOpenApprovals}
         onSaveBilledVolume={handleSaveBilledVolume}
-        onToggleExportMenu={() => setSummaryExportMenuOpen((isOpen) => !isOpen)}
         summaryRef={summaryRef}
       />
       <section className="chart-grid">

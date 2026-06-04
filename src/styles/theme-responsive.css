@@ -67,7 +67,8 @@
 .dark-mode .summary-pill span,
 .dark-mode .billed-volume-field span,
 .dark-mode .billed-volume-results span,
-.dark-mode .billed-volume-actions p {
+.dark-mode .billed-volume-actions p,
+.dark-mode .billed-volume-status {
   color: #9db1bb;
 }
 
@@ -120,14 +121,132 @@
 
 .dark-mode .billed-volume-field select,
 .dark-mode .billed-volume-field input,
+.dark-mode .billed-volume-month-trigger,
 .dark-mode .billed-volume-results > div {
   background: #0f1b25;
   border-color: #2b4351;
   color: #c9dbe0;
 }
 
+.dark-mode .billed-volume-month-panel {
+  background: #132230;
+  border-color: #2d4654;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.34);
+}
+
+.dark-mode .billed-volume-month-head strong {
+  color: #f0f7f8;
+}
+
+.dark-mode .billed-volume-month-head button {
+  background: #0f1b25;
+  color: #9db1bb;
+}
+
+.dark-mode .billed-volume-month-grid button {
+  color: #c9dbe0;
+}
+
+.dark-mode .billed-volume-month-head button:hover:not(:disabled),
+.dark-mode .billed-volume-month-grid button:hover {
+  background: #243848;
+  color: #f0f7f8;
+}
+
+.dark-mode .billed-volume-month-grid button.active {
+  background: #748398;
+  color: #ffffff;
+}
+
 .dark-mode .billed-volume-results strong {
   color: #f0f7f8;
+}
+
+.dark-mode .summary-report-header,
+.dark-mode .summary-report-form-card {
+  background: #0f1b25;
+  border-color: #2b4351;
+}
+
+.dark-mode .summary-report-header h3,
+.dark-mode .summary-report-form-card h4,
+.dark-mode .summary-report-results strong {
+  color: #f0f7f8;
+}
+
+.dark-mode .summary-report-header p,
+.dark-mode .summary-report-form-card p,
+.dark-mode .summary-report-field span,
+.dark-mode .summary-report-results span,
+.dark-mode .summary-report-card-status {
+  color: #9db1bb;
+}
+
+.dark-mode .summary-report-field input,
+.dark-mode .summary-report-month-trigger {
+  background: #132230;
+  border-color: #2d4654;
+  color: #d6e5e9;
+}
+
+.dark-mode .summary-report-month-panel,
+.dark-mode .summary-report-results > div {
+  background: #0f1b25;
+  border-color: #2b4351;
+}
+
+.dark-mode .summary-report-month-head strong {
+  color: #f0f7f8;
+}
+
+.dark-mode .summary-report-month-head button {
+  background: #132230;
+  color: #9db1bb;
+}
+
+.dark-mode .summary-report-month-head button:hover:not(:disabled),
+.dark-mode .summary-report-month-grid button:hover {
+  background: #243848;
+  color: #f0f7f8;
+}
+
+.dark-mode .summary-report-month-grid button {
+  background: transparent;
+  color: #d6e5e9;
+}
+
+.dark-mode .summary-report-month-grid button span {
+  color: #9db1bb;
+}
+
+.dark-mode .summary-report-month-grid button.added span {
+  color: #7ff7df;
+}
+
+.dark-mode .summary-report-month-grid button.missing span {
+  color: #ffb4b4;
+}
+
+.dark-mode .summary-report-month-grid button.active {
+  background: #748398;
+  border-color: #35c8d6;
+  color: #ffffff;
+}
+
+.dark-mode .summary-report-month-grid button.active span {
+  color: #ffffff;
+}
+
+.dark-mode .summary-report-status.added,
+.dark-mode .summary-report-status.complete {
+  background: #073c36;
+  color: #7ff7df;
+}
+
+.dark-mode .summary-report-status.missing,
+.dark-mode .summary-report-status.partial {
+  background: #243848;
+  color: #9db1bb;
 }
 
 .dark-mode .summary-export-button:hover:not(:disabled) {
@@ -148,20 +267,25 @@
 .dark-mode .summary-export-field select,
 .dark-mode .summary-export-field input[type="date"],
 .dark-mode .summary-export-field input[type="month"],
+.dark-mode .summary-picker-trigger,
 .dark-mode .summary-month-trigger,
 .dark-mode .summary-export-cancel {
   background: #0f1b25;
   border-color: #2b4351;
   color: #d6e5e9;
+  color-scheme: dark;
 }
 
-.dark-mode .summary-month-panel {
+.dark-mode .summary-month-panel,
+.dark-mode .summary-date-panel {
   background: #132230;
   border-color: #2d4654;
   box-shadow: 0 18px 38px rgba(0, 0, 0, 0.34);
+  color-scheme: dark;
 }
 
-.dark-mode .summary-month-head strong {
+.dark-mode .summary-month-head strong,
+.dark-mode .summary-date-head strong {
   color: #f0f7f8;
 }
 
@@ -170,19 +294,34 @@
   color: #9db1bb;
 }
 
-.dark-mode .summary-month-grid button {
+.dark-mode .summary-month-grid button,
+.dark-mode .summary-date-grid button {
   color: #c9dbe0;
 }
 
+.dark-mode .summary-date-weekdays span {
+  color: #8fa9b3;
+}
+
 .dark-mode .summary-month-head button:hover:not(:disabled),
-.dark-mode .summary-month-grid button:hover:not(:disabled) {
+.dark-mode .summary-month-grid button:hover:not(:disabled),
+.dark-mode .summary-date-grid button:hover:not(:disabled) {
   background: #243848;
   color: #f0f7f8;
 }
 
-.dark-mode .summary-month-grid button.active {
+.dark-mode .summary-month-grid button.active,
+.dark-mode .summary-date-grid button.active {
   background: #647386;
   color: #ffffff;
+}
+
+.light-mode .summary-export-field input[type="date"],
+.light-mode .summary-export-field input[type="month"],
+.light-mode .summary-picker-trigger,
+.light-mode .summary-month-panel,
+.light-mode .summary-date-panel {
+  color-scheme: light;
 }
 
 .dark-mode .readings-search-row .input-with-icon {
