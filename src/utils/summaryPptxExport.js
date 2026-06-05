@@ -688,7 +688,7 @@ function buildPowerCostRows(electricBillRows = [], productionRows = [], powerRow
       const electricRow = electricBillRows.find((row) => row.key === key) ?? {};
       const productionRow = productionByMonth.get(key);
       const powerRow = powerByMonth.get(key);
-      const production = safeNumber(powerRow?.powerCostProduction) || safeNumber(productionRow?.production);
+      const production = safeNumber(productionRow?.production) || safeNumber(powerRow?.powerCostProduction);
       const chlorinationKwh = safeNumber(powerRow?.chlorinationPower);
       const intakeKwh = safeNumber(powerRow?.deepwellPower);
       const operatingHours = safeNumber(powerRow?.operatingHours);
@@ -1066,6 +1066,88 @@ async function updateContentTypeOverride(zip, partName, contentType) {
   zip.file(contentTypePath, xml);
 }
 
+async function registerPresentationSlideMaster(zip, slideMasterPath) {
+  const presentationPath = 'ppt/presentation.xml';
+  const presentationRelPath = 'ppt/_rels/presentation.xml.rels';
+  const presentationFile = zip.file(presentationPath);
+  const presentationRelFile = zip.file(presentationRelPath);
+
+  if (!presentationFile || !presentationRelFile) {
+    return;
+  }
+
+  const target = getRelativeTarget('ppt', slideMasterPath);
+  let relXml = await presentationRelFile.async('string');
+  let relationshipId = [...relXml.matchAll(/<Relationship\b[^>]*Type="[^"]*\/slideMaster"[^>]*>/g)]
+    .find((match) => getXmlAttr(match[0], 'Target') === target)?.[0];
+  relationshipId = relationshipId ? getXmlAttr(relationshipId, 'Id') : '';
+
+  if (!relationshipId) {
+    const nextRelNumber = [...relXml.matchAll(/Id="rId(\d+)"/g)]
+      .reduce((next, match) => Math.max(next, Number(match[1]) + 1), 1);
+    relationshipId = `rId${nextRelNumber}`;
+    relXml = relXml.replace(
+      '</Relationships>',
+      `<Relationship Id="${relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="${target}"/></Relationships>`
+    );
+    zip.file(presentationRelPath, relXml);
+  }
+
+  let presentationXml = await presentationFile.async('string');
+  if (presentationXml.includes(`r:id="${relationshipId}"`)) {
+    return;
+  }
+
+  const usedMasterAndLayoutIds = await getUsedSlideMasterAndLayoutIds(zip);
+  const nextMasterId = usedMasterAndLayoutIds
+    .reduce((next, id) => Math.max(next, id + 1), 2147483648);
+  const masterEntry = `<p:sldMasterId id="${nextMasterId}" r:id="${relationshipId}"/>`;
+
+  if (/<p:sldMasterIdLst\b/.test(presentationXml)) {
+    presentationXml = presentationXml.replace('</p:sldMasterIdLst>', `${masterEntry}</p:sldMasterIdLst>`);
+  } else {
+    presentationXml = presentationXml.replace(/(<p:presentation\b[^>]*>)/, `$1<p:sldMasterIdLst>${masterEntry}</p:sldMasterIdLst>`);
+  }
+
+  zip.file(presentationPath, presentationXml);
+}
+
+async function getUsedSlideMasterAndLayoutIds(zip) {
+  const ids = [];
+  const presentationFile = zip.file('ppt/presentation.xml');
+
+  if (presentationFile) {
+    const presentationXml = await presentationFile.async('string');
+    ids.push(
+      ...[...presentationXml.matchAll(/<p:sldMasterId\b[^>]*\bid="(\d+)"/g)]
+        .map((match) => Number(match[1]))
+    );
+  }
+
+  const slideLayoutIds = await Promise.all(
+    Object.keys(zip.files)
+      .filter((fileName) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/.test(fileName))
+      .map(async (fileName) => {
+        const slideMasterXml = await zip.file(fileName).async('string');
+        return [...slideMasterXml.matchAll(/<p:sldLayoutId\b[^>]*\bid="(\d+)"/g)]
+          .map((match) => Number(match[1]));
+      })
+  );
+
+  ids.push(...slideLayoutIds.flat());
+  return ids.filter(Number.isFinite);
+}
+
+async function renumberSlideLayoutIds(zip, slideMasterXml) {
+  let nextId = Math.max(2147483648, ...await getUsedSlideMasterAndLayoutIds(zip)) + 1;
+
+  return slideMasterXml.replace(/(<p:sldLayoutId\b[^>]*\bid=")(\d+)("[^>]*>)/g, (_match, start, _id, end) => {
+    const id = nextId;
+    nextId += 1;
+    return `${start}${id}${end}`;
+  });
+}
+
 function removeChartLegend(xml) {
   return xml.replace(/<c:legend[\s\S]*?<\/c:legend>/, '');
 }
@@ -1228,8 +1310,16 @@ async function copyTemplateXmlPart(sourceZip, targetZip, sourcePartPath, copyCac
   const targetRelPath = `${dirname(targetPartPath)}/_rels/${targetPartPath.split('/').pop()}.rels`;
   copyCache.set(sourcePartPath, targetPartPath);
 
-  await copyZipPart(sourceZip, targetZip, sourcePartPath, targetPartPath);
+  if (spec.folder === 'ppt/slideMasters') {
+    const sourceXml = await sourceZip.file(sourcePartPath).async('string');
+    targetZip.file(targetPartPath, await renumberSlideLayoutIds(targetZip, sourceXml));
+  } else {
+    await copyZipPart(sourceZip, targetZip, sourcePartPath, targetPartPath);
+  }
   await updateContentTypeOverride(targetZip, targetPartPath, spec.contentType);
+  if (spec.folder === 'ppt/slideMasters') {
+    await registerPresentationSlideMaster(targetZip, targetPartPath);
+  }
 
   const sourceRels = sourceZip.file(sourceRelPath);
   if (!sourceRels) {
@@ -1260,12 +1350,11 @@ async function copyTemplateXmlPart(sourceZip, targetZip, sourcePartPath, copyCac
   return targetPartPath;
 }
 
-async function copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlideNumber, targetSlideNumber) {
+async function copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlideNumber, targetSlideNumber, copyCache = new Map()) {
   const sourceSlidePath = `ppt/slides/slide${sourceSlideNumber}.xml`;
   const sourceRelPath = `ppt/slides/_rels/slide${sourceSlideNumber}.xml.rels`;
   const targetSlidePath = `ppt/slides/slide${targetSlideNumber}.xml`;
   const targetRelPath = `ppt/slides/_rels/slide${targetSlideNumber}.xml.rels`;
-  const copyCache = new Map();
   const rawSourceSlideXml = await sourceZip.file(sourceSlidePath).async('string');
   const sourceSlideXml = sourceSlideNumber === 12 && sourceZip.file('ppt/slides/slide13.xml')
     ? useCleanTemplateChartOnSecFormulaSlide(rawSourceSlideXml, await sourceZip.file('ppt/slides/slide13.xml').async('string'))
@@ -1316,10 +1405,11 @@ async function applyPowerCostTemplateSlides(pptxBuffer) {
     const { default: JSZip } = await import('jszip');
     const targetZip = await JSZip.loadAsync(pptxBuffer);
     const sourceZip = await JSZip.loadAsync(await response.arrayBuffer());
+    const copyCache = new Map();
 
     for (const { sourceSlide, targetSlide } of POWER_COST_TEMPLATE_SLIDES) {
       if (targetZip.file(`ppt/slides/slide${targetSlide}.xml`) && sourceZip.file(`ppt/slides/slide${sourceSlide}.xml`)) {
-        await copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlide, targetSlide);
+        await copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlide, targetSlide, copyCache);
       }
     }
 
@@ -1365,11 +1455,12 @@ function addOperationPerformanceChart(slide, rows, x = 0.08, y = 2.12, w = 8.35,
   const productionBarW = 0.58;
   const operatingBarW = 0.34;
   const blue = '11AFE2';
-  const green = '147B24';
+  const operatingBar = 'A6A6A6';
+  const operatingBarLine = 'D0D0D0';
   const yellow = 'FFFF00';
   const orange = 'FF7A32';
   const axisBlue = '00B8F1';
-  const axisGreen = '30F05F';
+  const axisOperating = 'D0D0D0';
 
   function valueY(value, min, max) {
     return plotY + plotH - ((safeNumber(value) - min) / (max - min)) * plotH;
@@ -1408,12 +1499,12 @@ function addOperationPerformanceChart(slide, rows, x = 0.08, y = 2.12, w = 8.35,
 
   [520, 530, 540, 550, 560, 570, 580, 590, 600, 610, 620].forEach((tick) => {
     const tickY = valueY(tick, operatingMin, operatingMax);
-    slide.addText(String(tick), { x: x + w - 0.82, y: tickY - 0.08, w: 0.4, h: 0.16, fontSize: 7.4, bold: true, color: axisGreen, align: 'right', fit: 'shrink' });
+    slide.addText(String(tick), { x: x + w - 0.82, y: tickY - 0.08, w: 0.4, h: 0.16, fontSize: 7.4, bold: true, color: axisOperating, align: 'right', fit: 'shrink' });
   });
 
   slide.addText('PRODUCTION (CU. M)', { x: x - 0.46, y: y + 1.08, w: 2.34, h: 0.22, rotate: 270, fontSize: 10.2, bold: true, color: axisBlue, align: 'center', fit: 'shrink', breakLine: false });
   slide.addText('SPECIFIC ENERGY CONSUMPTION', { x: x + w - 1.84, y: y + 1.0, w: 2.76, h: 0.2, rotate: 270, fontSize: 9.0, bold: true, color: yellow, align: 'center', fit: 'shrink', breakLine: false });
-  slide.addText('OPERATING HOURS', { x: x + w - 1.06, y: y + 1.16, w: 2.05, h: 0.2, rotate: 270, fontSize: 9.0, bold: true, color: axisGreen, align: 'center', fit: 'shrink', breakLine: false });
+  slide.addText('OPERATING HOURS', { x: x + w - 1.06, y: y + 1.16, w: 2.05, h: 0.2, rotate: 270, fontSize: 9.0, bold: true, color: axisOperating, align: 'center', fit: 'shrink', breakLine: false });
 
   const secPoints = [];
   const operatingPoints = [];
@@ -1427,10 +1518,10 @@ function addOperationPerformanceChart(slide, rows, x = 0.08, y = 2.12, w = 8.35,
     const operatingTop = plotY + plotH - operatingHeight;
 
     slide.addShape('rect', { x: productionX, y: productionTop, w: productionBarW, h: productionHeight, fill: { color: blue }, line: { color: blue } });
-    slide.addShape('rect', { x: operatingX, y: operatingTop, w: operatingBarW, h: operatingHeight, fill: { color: green }, line: { color: '0B5F1B' } });
+    slide.addShape('rect', { x: operatingX, y: operatingTop, w: operatingBarW, h: operatingHeight, fill: { color: operatingBar }, line: { color: operatingBarLine } });
     slide.addText(months[index], { x: centerX - 0.35, y: plotY + plotH + 0.12, w: 0.7, h: 0.16, fontSize: 7.6, color: 'DADADA', align: 'center', fit: 'shrink' });
     slide.addText(formatNumber(row.production), { x: productionX - 0.42, y: productionTop - 0.24, w: 0.84, h: 0.18, fontSize: 8.4, color: axisBlue, align: 'center', fit: 'shrink' });
-    slide.addText(formatNumber(row.operatingHours, row.operatingHours % 1 ? 1 : 0), { x: operatingX - 0.04, y: operatingTop - 0.22, w: 0.58, h: 0.16, fontSize: 7.8, color: axisGreen, align: 'center', fit: 'shrink' });
+    slide.addText(formatNumber(row.operatingHours, row.operatingHours % 1 ? 1 : 0), { x: operatingX - 0.04, y: operatingTop - 0.22, w: 0.58, h: 0.16, fontSize: 7.8, color: axisOperating, align: 'center', fit: 'shrink' });
     slide.addText(formatNumber(row.sec, 2), { x: centerX - 0.58, y: valueY(row.sec, secMin, secMax) - 0.32, w: 0.52, h: 0.18, fontSize: 9.2, color: yellow, align: 'center', fit: 'shrink' });
 
     addChartLine(slide, productionX + 0.1, productionTop - 0.14, productionX - 0.28, productionTop - 0.36, axisBlue, 0.7);
@@ -1465,8 +1556,8 @@ function addOperationPerformanceChart(slide, rows, x = 0.08, y = 2.12, w = 8.35,
   slide.addText('Production m³', { x: x + 0.34, y: legendY - 0.05, w: 1.0, h: 0.16, fontSize: 7.5, bold: true, color: axisBlue, fit: 'shrink' });
   addChartLine(slide, x + 0.18, legendY + 0.32, x + 0.48, legendY + 0.32, yellow, 1.7);
   slide.addText('Specific Energy Consumption (kWh/m³)', { x: x + 0.5, y: legendY + 0.22, w: 2.15, h: 0.18, fontSize: 7.3, bold: true, color: yellow, fit: 'shrink' });
-  slide.addShape('rect', { x: x + w - 1.62, y: legendY + 0.08, w: 0.07, h: 0.07, fill: { color: green }, line: { color: '8EF09C' } });
-  slide.addText('Operating Hours', { x: x + w - 1.52, y: legendY + 0.02, w: 1.05, h: 0.15, fontSize: 7.0, bold: true, color: axisGreen, fit: 'shrink' });
+  slide.addShape('rect', { x: x + w - 2.28, y: legendY - 0.02, w: 0.22, h: 0.08, fill: { color: operatingBar }, line: { color: operatingBarLine } });
+  slide.addText('Operating Hours', { x: x + w - 2.02, y: legendY - 0.07, w: 1.36, h: 0.18, fontSize: 7.4, bold: true, color: axisOperating, fit: 'shrink' });
   addDashedChartLine(slide, x + w - 2.28, legendY + 0.32, x + w - 1.92, legendY + 0.32, orange, 1.9, 6);
   slide.addText('Trend Line (Operating Hours)', { x: x + w - 1.88, y: legendY + 0.22, w: 1.5, h: 0.15, fontSize: 6.8, bold: true, color: orange, fit: 'shrink' });
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Calculator, CalendarDays, ChevronDown, Download, FileText, Save, Zap } from 'lucide-react';
 import { exportSummaryReportPptx } from '../utils/summaryPptxExport';
+import { buildCycleMonthlyProductionYearData } from '../utils/reportCycles';
 
 const REPORT_INPUT_STORAGE_KEY = 'nemexus-summary-report-inputs';
 const MONTH_SHORT_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -865,7 +866,10 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
       const monthlyProductionYears = dashboard?.monthlyProductionYears ?? [];
       const monthlyPowerConsumptionYears = dashboard?.monthlyPowerConsumptionYears ?? [];
       const monthlyChemicalUsageYears = dashboard?.monthlyChemicalUsageYears ?? [];
-      const productionYearData = getYearDataForMonth(monthlyProductionYears, exportGraphEndMonthKey);
+      const cycleMonthlyProductionYears = monthlyProductionYears.map((yearData) =>
+        buildCycleMonthlyProductionYearData(dashboard, yearData, exportDailyStartDate, exportDailyEndDate)
+      );
+      const productionYearData = getYearDataForMonth(cycleMonthlyProductionYears, exportGraphEndMonthKey);
       const powerYearData = getYearDataForMonth(monthlyPowerConsumptionYears, exportGraphEndMonthKey);
       const chemicalYearData = getYearDataForMonth(monthlyChemicalUsageYears, exportGraphEndMonthKey);
 
@@ -873,7 +877,7 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
         selectedMonthlyProduction: getTrendData(productionYearData, exportGraphEndMonthKey, [
           { source: 'production', target: 'totalProduction' },
           { source: 'production', target: 'averageProduction' },
-        ], monthlyProductionYears),
+        ], cycleMonthlyProductionYears),
         selectedBilledVolumes: buildBilledVolumeInputs(effectiveReportInputs),
         selectedDailyProduction: getDailyProductionRangeData(dashboard, exportDailyStartDate, exportDailyEndDate, reportMonthKey),
         selectedPowerConsumption: getTrendData(powerYearData, exportGraphEndMonthKey, [{ source: 'totalPower', target: 'totalPower' }], monthlyPowerConsumptionYears),

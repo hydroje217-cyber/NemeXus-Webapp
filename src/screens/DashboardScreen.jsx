@@ -206,6 +206,44 @@ function getReadingOperatorName(reading) {
   return reading?.submitted_profile?.full_name || reading?.submitted_profile?.email || '-';
 }
 
+function normalizeIdentity(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function getAccountIdentityKeys(account) {
+  return new Set([
+    account?.id ? `id:${account.id}` : '',
+    account?.email ? `email:${normalizeIdentity(account.email)}` : '',
+    account?.full_name ? `name:${normalizeIdentity(account.full_name)}` : '',
+  ].filter(Boolean));
+}
+
+function getReadingOperatorIdentityKeys(reading) {
+  return new Set([
+    reading?.submitted_profile?.id ? `id:${reading.submitted_profile.id}` : '',
+    reading?.submitted_profile?.email ? `email:${normalizeIdentity(reading.submitted_profile.email)}` : '',
+    reading?.submitted_profile?.full_name ? `name:${normalizeIdentity(reading.submitted_profile.full_name)}` : '',
+    reading?.shift_match?.operator?.id ? `id:${reading.shift_match.operator.id}` : '',
+    reading?.shift_match?.operator?.email ? `email:${normalizeIdentity(reading.shift_match.operator.email)}` : '',
+    reading?.shift_match?.operator?.name ? `name:${normalizeIdentity(reading.shift_match.operator.name)}` : '',
+  ].filter(Boolean));
+}
+
+function getOperatorAssignedSiteLabel(account, readings = []) {
+  const accountKeys = getAccountIdentityKeys(account);
+
+  if (!accountKeys.size) {
+    return '';
+  }
+
+  const matchedReading = (readings ?? []).find((reading) => {
+    const readingKeys = getReadingOperatorIdentityKeys(reading);
+    return [...accountKeys].some((key) => readingKeys.has(key));
+  });
+
+  return matchedReading ? getReadingSiteName(matchedReading) : '';
+}
+
 function getReadingDetailFields(reading) {
   if (!reading) {
     return [];
@@ -432,6 +470,11 @@ export default function DashboardScreen({
         initials: getInitials(account.full_name, account.email),
         isActiveNow,
         lastSeenTime: Number.isFinite(lastSeenTime) ? lastSeenTime : 0,
+        showAssignedSiteDetail: account.role === 'operator',
+        assignedSiteLabel: getOperatorAssignedSiteLabel(account, [
+          ...(dashboard?.todaySlotReadings ?? []),
+          ...(dashboard?.recentReadings ?? []),
+        ]),
       };
     })
     .filter((account) => account.isActiveNow)
@@ -1069,7 +1112,7 @@ export default function DashboardScreen({
               className="floating-presence-item active"
               key={account.id || account.email}
               type="button"
-              aria-label={`${account.full_name || account.email || 'User'}, ${formatRoleLabel(account.role) || 'User'}, active now`}
+              aria-label={`${account.full_name || account.email || 'User'}, ${formatRoleLabel(account.role) || 'User'}, active now${account.showAssignedSiteDetail && account.assignedSiteLabel ? `, assigned to ${account.assignedSiteLabel}` : ''}`}
               onClick={() => handleFloatingPresenceOpen(account)}
             >
               <span className="floating-presence-identity" aria-hidden="true">
@@ -1082,6 +1125,9 @@ export default function DashboardScreen({
               <span className="floating-presence-popover" role="tooltip">
                 <strong>{account.full_name || account.email || 'User'}</strong>
                 <span>{formatRoleLabel(account.role) || 'User'} · Active now</span>
+                {account.showAssignedSiteDetail ? (
+                  <small>{account.assignedSiteLabel ? `Site: ${account.assignedSiteLabel}` : 'Site: Not assigned yet'}</small>
+                ) : null}
               </span>
             </button>
           ))}

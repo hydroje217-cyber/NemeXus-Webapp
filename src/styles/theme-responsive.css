@@ -1101,6 +1101,10 @@
   color: #74e7b3;
 }
 
+.dark-mode .floating-presence-popover small {
+  color: #bcd3da;
+}
+
 .dark-mode .recharts-total-label {
   fill: #bcd3da;
   stroke: #0f1b25;

@@ -12,8 +12,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { saveMonthlyBilledVolume } from '../services/dashboard';
 import { exportSummaryReportPptx } from '../utils/summaryPptxExport';
+import { buildCycleMonthlyProductionYearData } from '../utils/reportCycles';
 
 const DAILY_PRODUCTION_DEFAULT_DAYS = 7;
 const MONTH_SHORT_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1046,172 +1046,9 @@ function LiveSummaryPanel({
   );
 }
 
-function BilledVolumePanel({
-  billedVolumeDraft,
-  billedVolumeOptions,
-  billedVolumeYearOptions = [],
-  billedVolumeSaved,
-  billedVolumeNrw,
-  billedVolumeNrwPercent,
-  billedVolumeProduction,
-  billedVolumeSaving,
-  onBilledVolumeDraftChange,
-  onBilledVolumeOptionChange,
-  onSaveBilledVolume,
-}) {
-  const [monthPickerOpen, setMonthPickerOpen] = useState(false);
-  const [viewYear, setViewYear] = useState(billedVolumeOptions.year || getCurrentYear());
-  const pickerRef = useRef(null);
-  const availableYears = billedVolumeYearOptions.length ? billedVolumeYearOptions : [billedVolumeOptions.year || getCurrentYear()];
-  const sortedYears = [...availableYears].sort((first, second) => first - second);
-  const currentYearIndex = sortedYears.indexOf(viewYear);
-  const previousYear = currentYearIndex > 0 ? sortedYears[currentYearIndex - 1] : null;
-  const nextYear = currentYearIndex >= 0 && currentYearIndex < sortedYears.length - 1 ? sortedYears[currentYearIndex + 1] : null;
-
-  useEffect(() => {
-    setViewYear(billedVolumeOptions.year || getCurrentYear());
-  }, [billedVolumeOptions.year]);
-
-  useEffect(() => {
-    function closeOutside(event) {
-      if (pickerRef.current && !pickerRef.current.contains(event.target)) {
-        setMonthPickerOpen(false);
-      }
-    }
-
-    document.addEventListener('mousedown', closeOutside);
-    document.addEventListener('focusin', closeOutside);
-
-    return () => {
-      document.removeEventListener('mousedown', closeOutside);
-      document.removeEventListener('focusin', closeOutside);
-    };
-  }, []);
-
-  return (
-    <section className="billed-volume-panel">
-      <header className="operation-alerts-heading billed-volume-heading">
-        <span className="section-icon">
-          <Droplets size={16} />
-        </span>
-        <div>
-          <h3>Billed volume</h3>
-          <p>Monthly customer-billed water for NRW tracking.</p>
-        </div>
-      </header>
-
-      <form className="billed-volume-form" onSubmit={onSaveBilledVolume}>
-        <div className="billed-volume-entry-row">
-          <div className="billed-volume-field billed-volume-month-field" ref={pickerRef}>
-            <span>Month-Year</span>
-            <button
-              type="button"
-              className="billed-volume-month-trigger"
-              aria-expanded={monthPickerOpen}
-              onClick={() => setMonthPickerOpen((isOpen) => !isOpen)}
-            >
-              <strong>{getCompactMonthYearLabelFromKey(billedVolumeOptions.monthKey)}</strong>
-              <ChevronDown size={16} />
-            </button>
-            {monthPickerOpen ? (
-              <div className="billed-volume-month-panel">
-                <div className="billed-volume-month-head">
-                  <button
-                    type="button"
-                    aria-label="Previous year"
-                    disabled={!previousYear}
-                    onClick={() => previousYear && setViewYear(previousYear)}
-                  >
-                    <ChevronDown size={16} />
-                  </button>
-                  <strong>{viewYear}</strong>
-                  <button
-                    type="button"
-                    aria-label="Next year"
-                    disabled={!nextYear}
-                    onClick={() => nextYear && setViewYear(nextYear)}
-                  >
-                    <ChevronDown size={16} />
-                  </button>
-                </div>
-                <div className="billed-volume-month-grid">
-                  {MONTH_SHORT_LABELS.map((monthLabel, monthIndex) => {
-                    const monthKey = `${viewYear}-${String(monthIndex + 1).padStart(2, '0')}`;
-
-                    return (
-                      <button
-                        type="button"
-                        className={monthKey === billedVolumeOptions.monthKey ? 'active' : undefined}
-                        key={monthKey}
-                        onClick={() => {
-                          onBilledVolumeOptionChange({ year: viewYear, monthKey });
-                          setMonthPickerOpen(false);
-                        }}
-                      >
-                        {monthLabel}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <label className="billed-volume-field billed-volume-input-field">
-            <span>Billed Volume m3</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              value={billedVolumeDraft}
-              onChange={(event) => onBilledVolumeDraftChange(event.target.value)}
-              placeholder="0.00"
-            />
-          </label>
-
-          <button type="submit" className="billed-volume-save-button">
-            <Save size={15} />
-            {billedVolumeSaving ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-
-        <div className="billed-volume-results">
-          <div>
-            <span>Production</span>
-            <strong>{formatNumber(billedVolumeProduction)}</strong>
-          </div>
-          <div>
-            <span>NRW</span>
-            <strong>{formatNumber(billedVolumeNrw)}</strong>
-          </div>
-          <div>
-            <span>NRW %</span>
-            <strong>{Number.isFinite(billedVolumeNrwPercent) ? `${formatNumber(billedVolumeNrwPercent)}%` : '-'}</strong>
-          </div>
-        </div>
-
-        <p className="billed-volume-status">{billedVolumeSaved ? `Saved for ${getCompactMonthYearLabelFromKey(billedVolumeOptions.monthKey)}` : 'No billed volume saved for this month.'}</p>
-      </form>
-    </section>
-  );
-}
-
 function OverviewTopPanels({
-  billedVolumeDraft,
-  billedVolumeMonthOptions,
-  billedVolumeOptions,
-  billedVolumeYearOptions,
-  billedVolumeSaved,
-  billedVolumeNrw,
-  billedVolumeNrwPercent,
-  billedVolumeProduction,
-  billedVolumeSaving,
   dashboard,
-  onBilledVolumeDraftChange,
-  onBilledVolumeOptionChange,
   onOpenApprovals,
-  onSaveBilledVolume,
   summaryRef,
 }) {
   return (
@@ -1221,20 +1058,6 @@ function OverviewTopPanels({
         <LiveSummaryPanel
           dashboard={dashboard}
           panelRef={summaryRef}
-        />
-        <BilledVolumePanel
-          billedVolumeDraft={billedVolumeDraft}
-          billedVolumeMonthOptions={billedVolumeMonthOptions}
-          billedVolumeOptions={billedVolumeOptions}
-          billedVolumeYearOptions={billedVolumeYearOptions}
-          billedVolumeSaved={billedVolumeSaved}
-          billedVolumeNrw={billedVolumeNrw}
-          billedVolumeNrwPercent={billedVolumeNrwPercent}
-          billedVolumeProduction={billedVolumeProduction}
-          billedVolumeSaving={billedVolumeSaving}
-          onBilledVolumeDraftChange={onBilledVolumeDraftChange}
-          onBilledVolumeOptionChange={onBilledVolumeOptionChange}
-          onSaveBilledVolume={onSaveBilledVolume}
         />
       </div>
     </>
@@ -1923,13 +1746,7 @@ export default function OverviewScreen({
     graphStartMonthKey: `${getCurrentYear()}-01`,
     graphEndMonthKey: getCurrentMonthKey(),
   }));
-  const [billedVolumeOptions, setBilledVolumeOptions] = useState(() => ({
-    year: getCurrentYear(),
-    monthKey: getCurrentMonthKey(),
-  }));
   const [billedVolumes, setBilledVolumes] = useState(getStoredBilledVolumes);
-  const [billedVolumeDraft, setBilledVolumeDraft] = useState('');
-  const [savingBilledVolume, setSavingBilledVolume] = useState(false);
   const summaryRef = useRef(null);
   const productionRef = useRef(null);
   const powerRef = useRef(null);
@@ -2043,38 +1860,6 @@ export default function OverviewScreen({
   const exportGraphEndMonthKey = requestedExportGraphEndMonthKey.localeCompare(exportGraphStartMonthKey) >= 0
     ? requestedExportGraphEndMonthKey
     : exportGraphStartMonthKey;
-  const billedVolumeYearOptions = monthlyProductionYears.map((yearData) => Number(yearData.year)).filter(Number.isFinite).sort((first, second) => second - first);
-  const billedVolumeYear = billedVolumeYearOptions.includes(billedVolumeOptions.year)
-    ? billedVolumeOptions.year
-    : billedVolumeYearOptions[0] || getCurrentYear();
-  const billedVolumeYearData = monthlyProductionYears.find((yearData) => yearData.year === billedVolumeYear);
-  const billedVolumeMonthOptions = billedVolumeYearData?.rows?.length
-    ? billedVolumeYearData.rows.map((row) => ({
-        key: row.key,
-        monthLabel: row.label?.replace('\n', ' ') || `${getMonthNameFromKey(row.key)} ${billedVolumeYear}`,
-      }))
-    : Array.from({ length: 12 }, (_item, monthIndex) => {
-        const key = `${billedVolumeYear}-${String(monthIndex + 1).padStart(2, '0')}`;
-        return {
-          key,
-          monthLabel: `${getMonthNameFromKey(key)} ${billedVolumeYear}`,
-        };
-      });
-  const billedVolumeMonthKey = billedVolumeMonthOptions.some((month) => month.key === billedVolumeOptions.monthKey)
-    ? billedVolumeOptions.monthKey
-    : billedVolumeMonthOptions[0]?.key || `${billedVolumeYear}-01`;
-  const billedVolumeProductionRow = billedVolumeYearData?.rows?.find((row) => row.key === billedVolumeMonthKey);
-  const billedVolumeProduction = Number(billedVolumeProductionRow?.production ?? 0);
-  const billedVolumeSavedValue = billedVolumes[billedVolumeMonthKey];
-  const billedVolumeSaved = Number.isFinite(Number(billedVolumeSavedValue));
-  const billedVolumeInputValue = Number(billedVolumeDraft);
-  const billedVolumeForCalculation = Number.isFinite(billedVolumeInputValue)
-    ? billedVolumeInputValue
-    : billedVolumeSaved
-      ? Number(billedVolumeSavedValue)
-      : 0;
-  const billedVolumeNrw = Math.max(0, billedVolumeProduction - billedVolumeForCalculation);
-  const billedVolumeNrwPercent = billedVolumeProduction > 0 ? (billedVolumeNrw / billedVolumeProduction) * 100 : NaN;
   const activeDailyRows = selectedDailyProduction.rows.filter((row) => Number(row.production) > 0);
   const sectionRefs = {
     summary: summaryRef,
@@ -2180,21 +1965,6 @@ export default function OverviewScreen({
     summaryExportOptions.graphStartMonthKey,
     summaryExportOptions.monthKey,
   ]);
-
-  useEffect(() => {
-    if (billedVolumeOptions.year !== billedVolumeYear || billedVolumeOptions.monthKey !== billedVolumeMonthKey) {
-      setBilledVolumeOptions((currentOptions) => ({
-        ...currentOptions,
-        year: billedVolumeYear,
-        monthKey: billedVolumeMonthKey,
-      }));
-    }
-  }, [billedVolumeMonthKey, billedVolumeOptions.monthKey, billedVolumeOptions.year, billedVolumeYear]);
-
-  useEffect(() => {
-    const savedValue = billedVolumes[billedVolumeMonthKey];
-    setBilledVolumeDraft(Number.isFinite(Number(savedValue)) ? String(savedValue) : '');
-  }, [billedVolumeMonthKey, billedVolumes]);
 
   useEffect(() => {
     const sharedBilledVolumes = buildBilledVolumeMap(dashboardBilledVolumes);
@@ -2325,64 +2095,6 @@ export default function OverviewScreen({
     });
   }
 
-  function handleBilledVolumeOptionChange(nextOptions) {
-    setBilledVolumeOptions((currentOptions) => {
-      const nextYear = nextOptions.year ?? currentOptions.year;
-      const nextYearData = monthlyProductionYears.find((yearData) => yearData.year === nextYear);
-      const nextMonthOptions = nextYearData?.rows?.length
-        ? nextYearData.rows
-        : Array.from({ length: 12 }, (_item, monthIndex) => ({
-            key: `${nextYear}-${String(monthIndex + 1).padStart(2, '0')}`,
-          }));
-      const requestedMonth = nextOptions.monthKey ?? currentOptions.monthKey;
-      const nextMonthKey = nextMonthOptions.some((month) => month.key === requestedMonth)
-        ? requestedMonth
-        : nextMonthOptions[0]?.key || `${nextYear}-01`;
-
-      return {
-        ...currentOptions,
-        ...nextOptions,
-        year: nextYear,
-        monthKey: nextMonthKey,
-      };
-    });
-  }
-
-  async function handleSaveBilledVolume(event) {
-    event.preventDefault();
-
-    const nextValue = Number(billedVolumeDraft);
-    if (!Number.isFinite(nextValue) || nextValue < 0) {
-      window.alert('Enter a valid billed volume.');
-      return;
-    }
-
-    setSavingBilledVolume(true);
-
-    try {
-      await saveMonthlyBilledVolume({
-        monthKey: billedVolumeMonthKey,
-        billedVolumeM3: nextValue,
-      });
-
-      if (onRefresh) {
-        onRefresh();
-      }
-    } catch (error) {
-      window.alert(error?.message || 'Saved locally only. Add the monthly billed volume table to share this with other users.');
-    } finally {
-      setBilledVolumes((currentVolumes) => {
-        const nextVolumes = {
-          ...currentVolumes,
-          [billedVolumeMonthKey]: nextValue,
-        };
-        setStoredBilledVolumes(nextVolumes);
-        return nextVolumes;
-      });
-      setSavingBilledVolume(false);
-    }
-  }
-
   function getReportTrendData(yearData, monthKey, totalKeys, yearDataCollection = []) {
     const reportYear = Number(yearData?.year ?? String(monthKey || '').slice(0, 4));
     const previousDecemberKey = Number.isFinite(reportYear) ? `${reportYear - 1}-12` : '';
@@ -2439,8 +2151,12 @@ export default function OverviewScreen({
       const reportYear = Number(String(reportGraphEndMonthKey).slice(0, 4)) || exportYear;
       const reportMonthKey = String(reportDailyStartDate || getCurrentDateKey()).slice(0, 7);
       const reportMonth = exportMonthOptions.find((month) => month.key === reportMonthKey);
+      const cycleMonthlyProductionYears = monthlyProductionYears.map((yearData) =>
+        buildCycleMonthlyProductionYearData(dashboard, yearData, reportDailyStartDate, reportDailyEndDate)
+      );
       const productionYearData =
-        monthlyProductionYears.find((yearData) => yearData.year === reportYear) || selectedMonthlyProduction;
+        cycleMonthlyProductionYears.find((yearData) => yearData.year === reportYear) ||
+        buildCycleMonthlyProductionYearData(dashboard, selectedMonthlyProduction, reportDailyStartDate, reportDailyEndDate);
       const dailyYearData = dailyProductionYears.find((yearData) => yearData.year === reportYear);
       const dailyMonthData =
         dailyYearData?.months?.find((month) => month.key === reportMonthKey) || reportMonth || selectedDailyProduction;
@@ -2455,7 +2171,7 @@ export default function OverviewScreen({
         selectedMonthlyProduction: getReportTrendData(productionYearData, reportGraphEndMonthKey, [
           { source: 'production', target: 'totalProduction' },
           { source: 'production', target: 'averageProduction' },
-        ], monthlyProductionYears),
+        ], cycleMonthlyProductionYears),
         selectedBilledVolumes: billedVolumes,
         selectedDailyProduction: dailyProductionData,
         selectedPowerConsumption: getReportTrendData(powerYearData, reportGraphEndMonthKey, [{ source: 'totalPower', target: 'totalPower' }], monthlyPowerConsumptionYears),
@@ -2487,20 +2203,8 @@ export default function OverviewScreen({
   return (
     <>
       <OverviewTopPanels
-        billedVolumeDraft={billedVolumeDraft}
-        billedVolumeMonthOptions={billedVolumeMonthOptions}
-        billedVolumeOptions={{ ...billedVolumeOptions, year: billedVolumeYear, monthKey: billedVolumeMonthKey }}
-        billedVolumeYearOptions={billedVolumeYearOptions}
-        billedVolumeSaved={billedVolumeSaved}
-        billedVolumeNrw={billedVolumeNrw}
-        billedVolumeNrwPercent={billedVolumeNrwPercent}
-        billedVolumeProduction={billedVolumeProduction}
-        billedVolumeSaving={savingBilledVolume}
         dashboard={dashboard}
-        onBilledVolumeDraftChange={setBilledVolumeDraft}
-        onBilledVolumeOptionChange={handleBilledVolumeOptionChange}
         onOpenApprovals={onOpenApprovals}
-        onSaveBilledVolume={handleSaveBilledVolume}
         summaryRef={summaryRef}
       />
       <section className="chart-grid">
