@@ -876,6 +876,7 @@
 }
 
 .summary-report-form-card {
+  position: relative;
   min-width: 0;
   border: 1px solid #dbe5e8;
   border-radius: 8px;
@@ -985,7 +986,7 @@
 
 .summary-report-month-panel {
   position: absolute;
-  z-index: 55;
+  z-index: 120;
   top: calc(100% + 8px);
   left: 0;
   width: min(398px, calc(100vw - 56px));
@@ -1292,6 +1293,20 @@
   gap: 6px;
 }
 
+.summary-export-group {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.summary-export-group > strong {
+  color: #102236;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
 .summary-export-range-row {
   min-width: 0;
   display: grid;
@@ -1521,9 +1536,17 @@
   .summary-month-panel {
     width: 100%;
   }
+
 }
 
 .summary-export-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.summary-export-action-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1544,6 +1567,55 @@
   text-transform: uppercase;
 }
 
+.summary-export-pages-picker {
+  position: relative;
+  min-width: 118px;
+  margin-right: auto;
+}
+
+.summary-pages-trigger {
+  height: 36px;
+  min-width: 118px;
+  padding: 0 10px;
+  text-transform: uppercase;
+}
+
+.summary-pages-panel {
+  top: auto;
+  bottom: calc(100% + 8px);
+  width: 204px;
+}
+
+.summary-pages-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.summary-pages-grid button {
+  min-width: 0;
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7780;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.summary-pages-grid button:hover {
+  background: #fff1cf;
+  color: #102236;
+}
+
+.summary-pages-grid button.active {
+  background: #56606c;
+  color: #ffffff;
+}
+
 .summary-export-cancel {
   border: 1px solid #d3dde3;
   background: #ffffff;
@@ -1561,6 +1633,26 @@
 .summary-export-confirm:disabled {
   cursor: wait;
   opacity: 0.72;
+}
+
+@media (max-width: 520px) {
+  .summary-export-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary-export-pages-picker,
+  .summary-pages-trigger {
+    width: 100%;
+  }
+
+  .summary-export-action-buttons {
+    width: 100%;
+  }
+
+  .summary-export-action-buttons button {
+    flex: 1;
+  }
 }
 
 .live-summary-grid {

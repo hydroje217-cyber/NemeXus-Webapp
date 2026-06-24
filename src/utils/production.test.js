@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildDailyProductionMonths,
   buildDailyProductionYears,
   buildMonthlyChemicalUsageYears,
   buildMonthlyPowerConsumptionYears,
@@ -55,6 +56,22 @@ describe('yearly production analytics', () => {
       '2026-04',
       '2026-05',
     ]);
+  });
+
+  it('keeps current daily production rows through today even when the latest production is older', () => {
+    const months = buildDailyProductionMonths(
+      [
+        reading('2026-06-10', { totalizer: 100 }),
+        reading('2026-06-11', { totalizer: 153 }),
+      ],
+      { now: new Date(2026, 5, 23), year: 2026 }
+    );
+
+    const june = months.find((month) => month.key === '2026-06');
+
+    assert.equal(june.rows[0].key, '2026-06-23');
+    assert.equal(june.rows[0].production, 0);
+    assert.equal(june.rows.some((row) => row.key === '2026-06-11'), true);
   });
 
   it('stops monthly power consumption at the latest chlorination or deepwell reading month', () => {

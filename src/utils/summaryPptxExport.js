@@ -30,6 +30,7 @@ const POWER_COST_TEMPLATE_SLIDES = [
   { sourceSlide: 12, targetSlide: 12 },
   { sourceSlide: 13, targetSlide: 13 },
 ];
+const DEFAULT_EXPORT_PAGES = Array.from({ length: 13 }, (_item, index) => index + 1);
 
 const DEFAULT_BILLED_VOLUME_ROWS = {
   '2025-12': { billedVolume: 5895.89, nrw: 1052.41 },
@@ -90,6 +91,13 @@ function formatPercent(value) {
   return `${parsed >= 0 ? '+' : ''}${formatNumber(parsed, 1)}%`;
 }
 
+function escapeXmlText(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function formatDateTime(value) {
   if (!value) {
     return '-';
@@ -120,6 +128,16 @@ function safeText(value) {
 function safeNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeSelectedPages(pages = DEFAULT_EXPORT_PAGES) {
+  const selectedPages = new Set(
+    (Array.isArray(pages) ? pages : DEFAULT_EXPORT_PAGES)
+      .map((page) => Number(page))
+      .filter((page) => DEFAULT_EXPORT_PAGES.includes(page))
+  );
+
+  return selectedPages.size ? selectedPages : new Set(DEFAULT_EXPORT_PAGES);
 }
 
 function chartValue(value) {
@@ -683,42 +701,34 @@ function buildPowerCostRows(electricBillRows = [], productionRows = [], powerRow
     ? [startMonthKey, comparisonEndKey].filter(Boolean)
     : sortedKeys.filter((key) => String(key).localeCompare(comparisonEndKey) <= 0);
 
-  const rows = comparisonKeys
-    .map((key) => {
-      const electricRow = electricBillRows.find((row) => row.key === key) ?? {};
-      const productionRow = productionByMonth.get(key);
-      const powerRow = powerByMonth.get(key);
-      const production = safeNumber(productionRow?.production) || safeNumber(powerRow?.powerCostProduction);
-      const chlorinationKwh = safeNumber(powerRow?.chlorinationPower);
-      const intakeKwh = safeNumber(powerRow?.deepwellPower);
-      const operatingHours = safeNumber(powerRow?.operatingHours);
-      const intakeBill = safeNumber(powerRow?.intakeBill) || safeNumber(electricRow.electricBill);
-      const chlorinationBill = safeNumber(powerRow?.chlorinationBill);
-      const sec = safeNumber(powerRow?.secOverride) || (production > 0 ? (intakeKwh + chlorinationKwh) / production : 0);
-      const motorLoad = safeNumber(powerRow?.motorLoadOverride) || (operatingHours > 0 ? intakeKwh / operatingHours : 0);
+  const rows = comparisonKeys.map((key) => {
+    const electricRow = electricBillRows.find((row) => row.key === key) ?? {};
+    const productionRow = productionByMonth.get(key);
+    const powerRow = powerByMonth.get(key);
+    const production = safeNumber(productionRow?.production) || safeNumber(powerRow?.powerCostProduction);
+    const chlorinationKwh = safeNumber(powerRow?.chlorinationPower);
+    const intakeKwh = safeNumber(powerRow?.deepwellPower);
+    const operatingHours = safeNumber(powerRow?.operatingHours);
+    const intakeBill = safeNumber(powerRow?.intakeBill) || safeNumber(electricRow.electricBill);
+    const chlorinationBill = safeNumber(powerRow?.chlorinationBill);
+    const sec = safeNumber(powerRow?.secOverride) || (production > 0 ? (intakeKwh + chlorinationKwh) / production : 0);
+    const motorLoad = safeNumber(powerRow?.motorLoadOverride) || (operatingHours > 0 ? intakeKwh / operatingHours : 0);
 
-      return {
-        key,
-        label: getMonthLabelPartsFromKey(key).month,
-        shortLabel: getMonthDateFromKey(key).toLocaleString('en-US', { month: 'short', year: '2-digit' }),
-        dateLabel: powerRow?.dateLabel || formatMonthLabel(getMonthDateFromKey(key), true),
-        intakeBill,
-        chlorinationBill,
-        operatingHours,
-        production,
-        sec,
-        intakeKwh,
-        chlorinationKwh,
-        motorLoad,
-      };
-    })
-    .filter((row) => (
-      row.intakeBill > 0 &&
-      row.chlorinationBill > 0 &&
-      row.operatingHours > 0 &&
-      row.production > 0 &&
-      row.intakeKwh > 0
-    ));
+    return {
+      key,
+      label: getMonthLabelPartsFromKey(key).month,
+      shortLabel: getMonthDateFromKey(key).toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+      dateLabel: powerRow?.dateLabel || formatMonthLabel(getMonthDateFromKey(key), true),
+      intakeBill,
+      chlorinationBill,
+      operatingHours,
+      production,
+      sec,
+      intakeKwh,
+      chlorinationKwh,
+      motorLoad,
+    };
+  });
 
   return startMonthKey ? rows : rows.slice(-2);
 }
@@ -981,6 +991,10 @@ function dirname(path) {
 }
 
 function resolvePartPath(fromDir, target) {
+  if (String(target || '').startsWith('/')) {
+    return String(target).replace(/^\/+/, '');
+  }
+
   const parts = `${fromDir}/${target}`.split('/');
   const resolved = [];
   parts.forEach((part) => {
@@ -994,6 +1008,16 @@ function resolvePartPath(fromDir, target) {
     resolved.push(part);
   });
   return resolved.join('/');
+}
+
+function normalizeInternalRelationshipTarget(target, fromDir) {
+  const value = String(target || '');
+
+  if (!value.startsWith('/')) {
+    return value;
+  }
+
+  return getRelativeTarget(fromDir, value.replace(/^\/+/, ''));
 }
 
 function getRelativeTarget(fromDir, toPath) {
@@ -1042,6 +1066,65 @@ async function transformRelationshipXml(relXml, transformTag) {
   }
 
   return transformed + relXml.slice(cursor);
+}
+
+async function normalizeInternalRelationshipTargets(zip) {
+  await Promise.all(
+    Object.keys(zip.files)
+      .filter((fileName) => fileName.endsWith('.rels'))
+      .map(async (fileName) => {
+        const file = zip.file(fileName);
+        const relsDir = dirname(fileName);
+        const sourceDir = relsDir === '_rels'
+          ? ''
+          : relsDir.endsWith('/_rels') ? dirname(relsDir) : relsDir;
+        const xml = await file.async('string');
+        const normalizedXml = await transformRelationshipXml(xml, async (tag) => {
+          if (getXmlAttr(tag, 'TargetMode') === 'External') {
+            return tag;
+          }
+
+          return setXmlAttr(tag, 'Target', normalizeInternalRelationshipTarget(getXmlAttr(tag, 'Target'), sourceDir));
+        });
+
+        if (normalizedXml !== xml) {
+          zip.file(fileName, normalizedXml);
+        }
+      })
+  );
+}
+
+async function removeMissingContentTypeOverrides(zip) {
+  const contentTypePath = '[Content_Types].xml';
+  const file = zip.file(contentTypePath);
+
+  if (!file) {
+    return;
+  }
+
+  const xml = await file.async('string');
+  const normalizedXml = xml.replace(/<Override\b[^>]*\/>/g, (tag) => {
+    const partName = getXmlAttr(tag, 'PartName').replace(/^\/+/, '');
+
+    return partName && !zip.file(partName) ? '' : tag;
+  });
+
+  if (normalizedXml !== xml) {
+    zip.file(contentTypePath, normalizedXml);
+  }
+}
+
+async function normalizePptxPackage(pptxBuffer) {
+  try {
+    const { default: JSZip } = await import('jszip');
+    const zip = await JSZip.loadAsync(pptxBuffer);
+    await normalizeInternalRelationshipTargets(zip);
+    await removeMissingContentTypeOverrides(zip);
+    return zip.generateAsync({ type: 'arraybuffer' });
+  } catch (error) {
+    console.warn('Could not normalize PowerPoint package.', error);
+    return pptxBuffer;
+  }
 }
 
 async function updateContentTypeOverride(zip, partName, contentType) {
@@ -1203,7 +1286,186 @@ function useCleanTemplateChartOnSecFormulaSlide(sourceSlideXml, cleanChartSlideX
   });
 }
 
-async function copyTemplateChartPart(sourceZip, targetZip, sourceChartPath) {
+function getReplacementValue(replacements, index) {
+  if (Array.isArray(replacements)) {
+    return replacements[index];
+  }
+
+  return Object.prototype.hasOwnProperty.call(replacements, index) ? replacements[index] : undefined;
+}
+
+function replaceTextRuns(xml, replacements = []) {
+  let index = 0;
+
+  return xml.replace(/<a:t>[\s\S]*?<\/a:t>/g, (tag) => {
+    const replacement = getReplacementValue(replacements, index);
+    index += 1;
+
+    return replacement === undefined ? tag : `<a:t>${escapeXmlText(replacement)}</a:t>`;
+  });
+}
+
+function replaceMathTextRuns(xml, replacements = {}) {
+  let index = 0;
+
+  return xml.replace(/<m:t>[\s\S]*?<\/m:t>/g, (tag) => {
+    const replacement = replacements[index];
+    index += 1;
+
+    return replacement === undefined ? tag : `<m:t>${escapeXmlText(replacement)}</m:t>`;
+  });
+}
+
+function excelSerialFromMonthKey(monthKey) {
+  const date = getMonthDateFromKey(monthKey);
+  const excelEpoch = Date.UTC(1899, 11, 30);
+
+  return Math.round((Date.UTC(date.getFullYear(), date.getMonth(), 21) - excelEpoch) / 86400000);
+}
+
+function buildTemplateSlidePatch(rows = []) {
+  const previous = rows[0] ?? {};
+  const latest = rows[rows.length - 1] ?? {};
+  const summary = getCostChangeSummary(rows);
+  const rowData = [previous, latest].map((row) => ({
+    dateLabel: row.dateLabel || formatMonthLabel(getMonthDateFromKey(row.key), true),
+    monthLabel: getMonthLabelPartsFromKey(row.key).month,
+    yearLabel: String(row.key || '').slice(0, 4),
+    shortLabel: row.shortLabel || getMonthDateFromKey(row.key).toLocaleString('en-US', { month: 'short', year: '2-digit' }),
+    serial: excelSerialFromMonthKey(row.key),
+    intakeBill: formatCurrency(row.intakeBill),
+    chlorinationBill: formatCurrency(row.chlorinationBill),
+    operatingHours: `${formatNumber(row.operatingHours, row.operatingHours % 1 ? 1 : 0)} hrs`,
+    production: `${formatNumber(row.production)} m³`,
+    sec: `${formatNumber(row.sec, 2)}  kWh/m³`,
+    intakeKwh: formatNumber(row.intakeKwh, 0).replace(/,/g, ''),
+    intakeKwhDisplay: formatNumber(row.intakeKwh, 0),
+    chlorinationKwh: formatNumber(row.chlorinationKwh, 0).replace(/,/g, ''),
+    productionNumber: formatNumber(row.production),
+    secNumber: formatNumber(row.sec, 2),
+    productionValue: safeNumber(row.production),
+    secValue: safeNumber(row.sec),
+    operatingHoursValue: safeNumber(row.operatingHours),
+  }));
+
+  return {
+    rows: rowData,
+    summary,
+    textRuns: [
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      rowData[0].dateLabel,
+      rowData[0].intakeBill,
+      rowData[0].chlorinationBill,
+      rowData[0].operatingHours,
+      rowData[0].production,
+      rowData[0].sec,
+      rowData[1].dateLabel,
+      rowData[1].intakeBill,
+      rowData[1].chlorinationBill,
+      rowData[1].operatingHours,
+      rowData[1].production,
+      rowData[1].sec,
+    ],
+    mathRuns: {
+      16: `${rowData[0].intakeKwhDisplay} `,
+      18: `+${rowData[0].chlorinationKwh}`,
+      21: rowData[0].productionNumber,
+      26: rowData[0].secNumber,
+      35: rowData[0].monthLabel.toUpperCase(),
+      39: rowData[0].yearLabel,
+      45: rowData[0].intakeKwh,
+      52: rowData[0].chlorinationKwh,
+      59: rowData[1].monthLabel.toUpperCase(),
+      63: rowData[1].yearLabel,
+      69: rowData[1].intakeKwh.includes(',') ? rowData[1].intakeKwh.split(',')[0] : rowData[1].intakeKwh,
+      71: rowData[1].intakeKwh.includes(',') ? rowData[1].intakeKwh.split(',').slice(1).join(',') : '',
+      78: rowData[1].chlorinationKwh,
+      83: rowData[1].intakeKwhDisplay,
+      85: `+${rowData[1].chlorinationKwh}`,
+      87: rowData[1].productionNumber,
+      92: `${rowData[1].secNumber} `,
+    },
+    findingsRuns: {
+      19: formatPercent(summary.productionChange),
+      21: `${formatNumber(safeNumber(latest.production))} m³`,
+      24: formatPercent(summary.secChange),
+      27: `(${formatNumber(safeNumber(previous.sec), 2)} kWh/m³) to (${formatNumber(safeNumber(latest.sec), 2)} kWh/m³)`,
+      30: `(${formatNumber(safeNumber(previous.motorLoad), 2)}`,
+      34: ` to (${formatNumber(safeNumber(latest.motorLoad), 2)} kW) (${formatPercent(summary.motorLoadChange)})`,
+    },
+  };
+}
+
+function patchTemplateSlideXml(sourceSlideXml, sourceSlideNumber, rows) {
+  const patch = buildTemplateSlidePatch(rows);
+  let xml = replaceTextRuns(sourceSlideXml, patch.textRuns);
+
+  if (sourceSlideNumber === 12) {
+    xml = replaceMathTextRuns(xml, patch.mathRuns);
+  }
+
+  if (sourceSlideNumber === 13) {
+    xml = replaceTextRuns(xml, {
+      ...patch.textRuns,
+      ...patch.findingsRuns,
+    });
+  }
+
+  return xml;
+}
+
+function replaceChartPointValues(xml, seriesValues) {
+  let seriesIndex = 0;
+
+  return xml.replace(/<c:numCache>([\s\S]*?)<\/c:numCache>/g, (cacheXml) => {
+    const values = seriesValues[seriesIndex];
+    seriesIndex += 1;
+
+    if (!values) {
+      return cacheXml;
+    }
+
+    let pointIndex = 0;
+    return cacheXml.replace(/<c:v>[\s\S]*?<\/c:v>/g, (tag) => {
+      const value = values[pointIndex];
+      pointIndex += 1;
+
+      return value === undefined ? tag : `<c:v>${escapeXmlText(value)}</c:v>`;
+    });
+  });
+}
+
+function patchTemplateChartXml(xml, sourceChartPath, rows = []) {
+  const patch = buildTemplateSlidePatch(rows);
+  const labels = patch.rows.map((row) => row.serial);
+  const production = patch.rows.map((row) => row.productionValue);
+  const sec = patch.rows.map((row) => row.secValue);
+  const operatingHours = patch.rows.map((row) => row.operatingHoursValue);
+  const intakeBill = rows.map((row) => safeNumber(row.intakeBill));
+  const chlorinationBill = rows.map((row) => safeNumber(row.chlorinationBill));
+  const chartName = sourceChartPath.split('/').pop();
+
+  if (chartName === 'chart1.xml') {
+    return replaceChartPointValues(xml, [labels, intakeBill, labels, chlorinationBill]);
+  }
+
+  if (chartName === 'chart2.xml' || chartName === 'chart5.xml') {
+    return replaceChartPointValues(xml, [labels, production, labels, sec]);
+  }
+
+  if (chartName === 'chart3.xml' || chartName === 'chart6.xml' || chartName === 'chart4.xml' || chartName === 'chart7.xml') {
+    return replaceChartPointValues(xml, [labels, production, labels, sec, labels, operatingHours]);
+  }
+
+  return xml;
+}
+
+async function copyTemplateChartPart(sourceZip, targetZip, sourceChartPath, rows = []) {
   const chartNumber = getNextPartNumber(targetZip, 'ppt/charts', 'chart', '.xml');
   const targetChartPath = `ppt/charts/chart${chartNumber}.xml`;
   const sourceRelPath = `${dirname(sourceChartPath)}/_rels/${sourceChartPath.split('/').pop()}.rels`;
@@ -1212,7 +1474,7 @@ async function copyTemplateChartPart(sourceZip, targetZip, sourceChartPath) {
   const sourceChartFile = sourceZip.file(sourceChartPath);
   if (sourceChartFile) {
     const sourceChartXml = await sourceChartFile.async('string');
-    targetZip.file(targetChartPath, cleanTemplateChartLegend(sourceChartXml, sourceChartPath));
+    targetZip.file(targetChartPath, patchTemplateChartXml(cleanTemplateChartLegend(sourceChartXml, sourceChartPath), sourceChartPath, rows));
   }
   await updateContentTypeOverride(targetZip, targetChartPath, 'application/vnd.openxmlformats-officedocument.drawingml.chart+xml');
 
@@ -1350,15 +1612,16 @@ async function copyTemplateXmlPart(sourceZip, targetZip, sourcePartPath, copyCac
   return targetPartPath;
 }
 
-async function copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlideNumber, targetSlideNumber, copyCache = new Map()) {
+async function copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlideNumber, targetSlideNumber, copyCache = new Map(), rows = []) {
   const sourceSlidePath = `ppt/slides/slide${sourceSlideNumber}.xml`;
   const sourceRelPath = `ppt/slides/_rels/slide${sourceSlideNumber}.xml.rels`;
   const targetSlidePath = `ppt/slides/slide${targetSlideNumber}.xml`;
   const targetRelPath = `ppt/slides/_rels/slide${targetSlideNumber}.xml.rels`;
   const rawSourceSlideXml = await sourceZip.file(sourceSlidePath).async('string');
-  const sourceSlideXml = sourceSlideNumber === 12 && sourceZip.file('ppt/slides/slide13.xml')
+  const cleanSourceSlideXml = sourceSlideNumber === 12 && sourceZip.file('ppt/slides/slide13.xml')
     ? useCleanTemplateChartOnSecFormulaSlide(rawSourceSlideXml, await sourceZip.file('ppt/slides/slide13.xml').async('string'))
     : rawSourceSlideXml;
+  const sourceSlideXml = patchTemplateSlideXml(cleanSourceSlideXml, sourceSlideNumber, rows);
   const sourceRelXml = await sourceZip.file(sourceRelPath).async('string');
   const targetSlideDir = 'ppt/slides';
   const targetRelXml = await transformRelationshipXml(sourceRelXml, async (tag) => {
@@ -1374,7 +1637,7 @@ async function copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlideNumber
     if (type.includes('/slideLayout')) {
       targetPartPath = await copyTemplateXmlPart(sourceZip, targetZip, sourcePartPath, copyCache);
     } else if (type.includes('/chart')) {
-      targetPartPath = await copyTemplateChartPart(sourceZip, targetZip, sourcePartPath);
+      targetPartPath = await copyTemplateChartPart(sourceZip, targetZip, sourcePartPath, rows);
     } else if (type.includes('/image')) {
       targetPartPath = await copyTemplateMediaPart(sourceZip, targetZip, sourcePartPath);
     }
@@ -1390,8 +1653,8 @@ async function copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlideNumber
   targetZip.file(targetRelPath, targetRelXml);
 }
 
-async function applyPowerCostTemplateSlides(pptxBuffer) {
-  if (typeof fetch !== 'function') {
+async function applyPowerCostTemplateSlides(pptxBuffer, templateSlides = POWER_COST_TEMPLATE_SLIDES, rows = []) {
+  if (typeof fetch !== 'function' || !templateSlides.length) {
     return pptxBuffer;
   }
 
@@ -1407,12 +1670,14 @@ async function applyPowerCostTemplateSlides(pptxBuffer) {
     const sourceZip = await JSZip.loadAsync(await response.arrayBuffer());
     const copyCache = new Map();
 
-    for (const { sourceSlide, targetSlide } of POWER_COST_TEMPLATE_SLIDES) {
+    for (const { sourceSlide, targetSlide } of templateSlides) {
       if (targetZip.file(`ppt/slides/slide${targetSlide}.xml`) && sourceZip.file(`ppt/slides/slide${sourceSlide}.xml`)) {
-        await copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlide, targetSlide, copyCache);
+        await copyTemplateSlideIntoDeck(sourceZip, targetZip, sourceSlide, targetSlide, copyCache, rows);
       }
     }
 
+    await normalizeInternalRelationshipTargets(targetZip);
+    await removeMissingContentTypeOverrides(targetZip);
     return targetZip.generateAsync({ type: 'arraybuffer' });
   } catch (error) {
     console.warn('Could not apply Power Cost template slides.', error);
@@ -1907,6 +2172,7 @@ export async function exportSummaryReportPptx({
     powerCostStartMonthKey: context?.powerCostStartMonthKey || '',
     powerCostEndMonthKey: context?.powerCostEndMonthKey || '',
   };
+  const selectedPages = normalizeSelectedPages(context?.selectedPages);
   const productionRows = selectedMonthlyProduction?.rows ?? [];
   const powerRows = mergeReportInputRows(selectedPowerConsumption?.rows ?? [], pageContext.reportInputs);
   const chemicalRows = selectedChemicalUsage?.rows ?? [];
@@ -1933,12 +2199,28 @@ export async function exportSummaryReportPptx({
   );
   const chlorineUnitUsageRows = buildChemicalUnitUsageRows(templateProductionRows, templateChemicalRows, 'chlorineUsage');
   const peroxideUnitUsageRows = buildChemicalUnitUsageRows(templateProductionRows, templateChemicalRows, 'peroxideUsage');
+  const templateSlidesToApply = [];
+  let outputSlideNumber = 0;
 
-  addTitleSlide(pptx, pageContext);
+  function addReportPage(pageNumber, addPage) {
+    if (!selectedPages.has(pageNumber)) {
+      return;
+    }
 
-  let pageNumber = 2;
+    const slideWasAdded = addPage(pageNumber) !== false;
+    if (!slideWasAdded) {
+      return;
+    }
 
-  addChartOnlySlide(
+    outputSlideNumber += 1;
+    if (pageNumber === 12 || pageNumber === 13) {
+      templateSlidesToApply.push({ sourceSlide: pageNumber, targetSlide: outputSlideNumber });
+    }
+  }
+
+  addReportPage(1, () => addTitleSlide(pptx, pageContext));
+
+  addReportPage(2, (pageNumber) => addChartOnlySlide(
     pptx,
     'PRODUCTION - Monthly',
     '',
@@ -1969,10 +2251,9 @@ export async function exportSummaryReportPptx({
       leftAxisTitleX: -0.114,
       leftAxisTitleY: 3.58,
     }
-  );
-  pageNumber += 1;
+  ));
 
-  addChartOnlySlide(
+  addReportPage(3, (pageNumber) => addChartOnlySlide(
     pptx,
     'Billed Volume',
     '',
@@ -2005,10 +2286,9 @@ export async function exportSummaryReportPptx({
       leftAxisTitleX: -0.098,
       leftAxisTitleY: 3.62,
     }
-  );
-  pageNumber += 1;
+  ));
 
-  addChartSectionSlide(
+  addReportPage(4, (pageNumber) => addChartSectionSlide(
     pptx,
     'PRODUCTION - Daily',
     '',
@@ -2045,10 +2325,9 @@ export async function exportSummaryReportPptx({
       leftAxisTitleX: -0.16,
       leftAxisTitleY: 3.58,
     }
-  );
-  pageNumber += 1;
+  ));
 
-  addChartSectionSlide(
+  addReportPage(5, (pageNumber) => addChartSectionSlide(
     pptx,
     'POWER CONSUMPTION',
     '',
@@ -2087,10 +2366,9 @@ export async function exportSummaryReportPptx({
       leftAxisTitleX: -0.227,
       leftAxisTitleY: 3.58,
     }
-  );
-  pageNumber += 1;
+  ));
 
-  addChartSectionSlide(
+  addReportPage(6, (pageNumber) => addChartSectionSlide(
     pptx,
     'POWER UNIT USAGE',
     '',
@@ -2127,15 +2405,18 @@ export async function exportSummaryReportPptx({
       chartW: 11.098,
       chartH: 5.183,
     }
-  );
-  pageNumber += 1;
+  ));
 
-  if (hasElectricBillData(electricBillRows)) {
+  addReportPage(7, () => {
+    if (!hasElectricBillData(electricBillRows)) {
+      return false;
+    }
+
     addElectricBillSlide(pptx, electricBillRows);
-    pageNumber += 1;
-  }
+    return true;
+  });
 
-  addChartSectionSlide(
+  addReportPage(8, (pageNumber) => addChartSectionSlide(
     pptx,
     'Unit Usage - Calcium Hypochlorite',
     '',
@@ -2176,10 +2457,9 @@ export async function exportSummaryReportPptx({
       leftAxisTitleX: -0.227,
       leftAxisTitleY: 3.58,
     }
-  );
-  pageNumber += 1;
+  ));
 
-  addChartSectionSlide(
+  addReportPage(9, (pageNumber) => addChartSectionSlide(
     pptx,
     'Unit Usage - Hydrogen Peroxide',
     '',
@@ -2220,26 +2500,21 @@ export async function exportSummaryReportPptx({
       leftAxisTitleX: -0.1,
       leftAxisTitleY: 3.58,
     }
-  );
-  pageNumber += 1;
+  ));
 
-  if (hasPowerCostData(powerCostRows)) {
-    addPowerCostAnalysisSlide(pptx, powerCostRows);
-    pageNumber += 1;
+  addReportPage(10, () => addPowerCostAnalysisSlide(pptx, powerCostRows));
 
-    addFinancialPanelSlide(pptx, powerCostRows);
-    pageNumber += 1;
+  addReportPage(11, () => addFinancialPanelSlide(pptx, powerCostRows));
 
-    addSecExplanationSlide(pptx, powerCostRows);
-    pageNumber += 1;
+  addReportPage(12, () => addSecExplanationSlide(pptx, powerCostRows));
 
-    addSecFindingsSlide(pptx, powerCostRows);
-  }
+  addReportPage(13, () => addSecFindingsSlide(pptx, powerCostRows));
 
   const periodSlug = makeFileSafe(pageContext.reportPeriodLabel);
   const fileName = `nemexus-summary-report-${periodSlug ? `${periodSlug}-` : ''}${makeFileDate(reportDate)}.pptx`;
   const generatedPptx = await pptx.write({ outputType: 'arraybuffer' });
-  const templatedPptx = await applyPowerCostTemplateSlides(generatedPptx);
-  await savePptxBuffer(templatedPptx, fileName);
-  return templatedPptx;
+  const templatedPptx = await applyPowerCostTemplateSlides(generatedPptx, templateSlidesToApply, powerCostRows);
+  const normalizedPptx = await normalizePptxPackage(templatedPptx);
+  await savePptxBuffer(normalizedPptx, fileName);
+  return normalizedPptx;
 }

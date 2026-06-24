@@ -290,6 +290,12 @@ function padDailyRows(rows, valueKey) {
   return paddedRows;
 }
 
+function orderDailyRowsForChart(rows, valueKey) {
+  return padDailyRows(rows, valueKey).sort((first, second) => {
+    return String(second.key || second.date || '').localeCompare(String(first.key || first.date || ''));
+  });
+}
+
 function formatAxisNumber(value) {
   return formatNumber(value, 0);
 }
@@ -395,7 +401,7 @@ function stackSegmentRadius(row, segment) {
 }
 
 function SimpleBarChart({ rows, valueKey, emptyMessage, daily = false }) {
-  const visibleRows = daily ? padDailyRows(rows, valueKey) : (rows ?? []);
+  const visibleRows = daily ? orderDailyRowsForChart(rows, valueKey) : (rows ?? []);
   const chartRows = visibleRows.map((row) => ({
     label: row.label,
     value: Number(row[valueKey]) || 0,

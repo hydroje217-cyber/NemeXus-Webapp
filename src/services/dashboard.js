@@ -34,6 +34,7 @@ const LOGIN_LOG_FALLBACK_SELECT = 'id, user_id, email, role, browser, device, us
 const LEGACY_LOGIN_LOG_SELECT = 'id, profile_id, email, full_name, role, logged_in_at, user_agent';
 const MONTHLY_BILLED_VOLUME_SELECT = 'id, month_key, billed_volume_m3, created_at, updated_at';
 const ANALYTICS_YEAR_COUNT = 2;
+const SUPABASE_PAGE_SIZE = 1000;
 
 function startOfTodayIso() {
   const now = new Date();
@@ -154,6 +155,65 @@ async function queryRawReadings({
   return (result.data ?? []).map((row) => normalizeRawReading(row, siteType));
 }
 
+async function fetchPagedRows(queryFactory) {
+  const rows = [];
+
+  for (let from = 0; ; from += SUPABASE_PAGE_SIZE) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const result = await queryFactory().range(from, to);
+
+    if (result.error) {
+      return result;
+    }
+
+    const pageRows = result.data ?? [];
+    rows.push(...pageRows);
+
+    if (pageRows.length < SUPABASE_PAGE_SIZE) {
+      return { data: rows, error: null };
+    }
+  }
+}
+
+async function queryPagedRawReadings({
+  table,
+  select,
+  fallbackSelect,
+  siteType,
+  fromIso,
+  toIso,
+  filterColumn = 'slot_datetime',
+  ascending = false,
+}) {
+  const query = (selectClause) => {
+    let nextQuery = supabase
+      .from(table)
+      .select(selectClause)
+      .gte(filterColumn, fromIso)
+      .order(filterColumn, { ascending });
+
+    if (toIso) {
+      nextQuery = nextQuery.lt(filterColumn, toIso);
+    }
+
+    return nextQuery;
+  };
+  let result = await fetchPagedRows(() => query(select));
+
+  if (result.error && fallbackSelect) {
+    result = await fetchPagedRows(() => query(fallbackSelect));
+  }
+
+  if (result.error) {
+    return result;
+  }
+
+  return {
+    data: (result.data ?? []).map((row) => normalizeRawReading(row, siteType)),
+    error: null,
+  };
+}
+
 async function loadRawReadings({ fromIso, toIso, filterColumn, ascending, limit }) {
   const [chlorinationReadings, deepwellReadings] = await Promise.all([
     queryRawReadings({
@@ -181,6 +241,44 @@ async function loadRawReadings({ fromIso, toIso, filterColumn, ascending, limit 
   ]);
 
   return [...chlorinationReadings, ...deepwellReadings].sort(sortByCreatedAtDesc);
+}
+
+async function loadPagedRawReadings({ fromIso, toIso, filterColumn, ascending }) {
+  const [chlorinationResult, deepwellResult] = await Promise.all([
+    queryPagedRawReadings({
+      table: 'chlorination_readings',
+      select: CHLORINATION_READING_SELECT,
+      fallbackSelect: CHLORINATION_READING_FALLBACK_SELECT,
+      siteType: 'CHLORINATION',
+      fromIso,
+      toIso,
+      filterColumn,
+      ascending,
+    }),
+    queryPagedRawReadings({
+      table: 'deepwell_readings',
+      select: DEEPWELL_READING_SELECT,
+      fallbackSelect: DEEPWELL_READING_FALLBACK_SELECT,
+      siteType: 'DEEPWELL',
+      fromIso,
+      toIso,
+      filterColumn,
+      ascending,
+    }),
+  ]);
+
+  if (chlorinationResult.error) {
+    return chlorinationResult;
+  }
+
+  if (deepwellResult.error) {
+    return deepwellResult;
+  }
+
+  return {
+    data: [...(chlorinationResult.data ?? []), ...(deepwellResult.data ?? [])].sort(sortByCreatedAtDesc),
+    error: null,
+  };
 }
 
 async function loadRecentRawReadings({ fromIso, limit }) {
@@ -624,7 +722,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .lte('summary_date', analyticsRange.summaryToDate)
       .order('summary_date', { ascending: true }),
     fetchMonthlyBilledVolumes(),
-    loadRawReadings({
+    loadPagedRawReadings({
       fromIso: analyticsRange.readingFromIso,
       toIso: analyticsRange.readingToIso,
       filterColumn: 'reading_datetime',
@@ -642,6 +740,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
   throwIfError(loginLogs, 'Failed to load login logs.');
   throwIfError(operators, 'Failed to load operators.');
   throwIfError(monthlySummaries, 'Failed to load monthly daily site summaries.');
+  throwIfError(analyticsRawReadings, 'Failed to load analytics readings.');
 
   const recentSummaryRows = (recentSummaries.data ?? [])
     .map(normalizeDailySummary)
@@ -651,8 +750,9 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     recentRawReadings.length ? recentRawReadings : recentSummaryRows
   );
   const dailySummaries = monthlySummaries.data ?? [];
-  const monthlyChlorination = analyticsRawReadings.filter((row) => row.site_type === 'CHLORINATION');
-  const monthlyDeepwell = analyticsRawReadings.filter((row) => row.site_type === 'DEEPWELL');
+  const analyticsRows = analyticsRawReadings.data ?? [];
+  const monthlyChlorination = analyticsRows.filter((row) => row.site_type === 'CHLORINATION');
+  const monthlyDeepwell = analyticsRows.filter((row) => row.site_type === 'DEEPWELL');
 
   return {
     stats: {

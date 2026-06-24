@@ -6,6 +6,7 @@ import { buildCycleMonthlyProductionYearData } from '../utils/reportCycles';
 const REPORT_INPUT_STORAGE_KEY = 'nemexus-summary-report-inputs';
 const MONTH_SHORT_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAY_SHORT_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const SUMMARY_EXPORT_PAGE_NUMBERS = Array.from({ length: 13 }, (_item, index) => index + 1);
 const REFERENCE_SUMMARY_REPORT_INPUTS = {
   '2025-12': {
     billedVolume: 5895.89,
@@ -278,22 +279,34 @@ function getLatestInputMonth(reportInputs = {}, fields = [], fallbackMonthKey) {
     .pop() || fallbackMonthKey;
 }
 
-function getPowerCostRangeMonthKeys(reportInputs = {}, fallbackStartMonthKey, fallbackEndMonthKey) {
-  const completeMonths = Object.entries(reportInputs || {})
-    .filter(([_monthKey, row]) => ['intakeBill', 'chlorinationBill', 'operatingHours', 'powerCostProduction', 'deepwellPower', 'chlorinationPower'].every((field) => Number(row?.[field]) > 0))
-    .map(([monthKey]) => monthKey)
-    .sort();
-
-  if (completeMonths.length >= 2) {
-    return {
-      startMonthKey: completeMonths[completeMonths.length - 2],
-      endMonthKey: completeMonths[completeMonths.length - 1],
-    };
-  }
+function getDefaultDailyExportRange(date = new Date()) {
+  const year = date.getFullYear();
+  const monthIndex = date.getMonth();
+  const isNextCycle = date.getDate() >= 28;
+  const startDate = new Date(year, monthIndex + (isNextCycle ? 0 : -1), 28);
+  const endDate = new Date(year, monthIndex + (isNextCycle ? 1 : 0), 27);
 
   return {
-    startMonthKey: completeMonths[0] || fallbackStartMonthKey,
-    endMonthKey: completeMonths[1] || completeMonths[0] || fallbackEndMonthKey,
+    startDate: getDateKeyFromParts(startDate.getFullYear(), startDate.getMonth() + 1, startDate.getDate()),
+    endDate: getDateKeyFromParts(endDate.getFullYear(), endDate.getMonth() + 1, endDate.getDate()),
+  };
+}
+
+function getDefaultGraphRangeMonthKeys(date = new Date()) {
+  const year = date.getFullYear();
+
+  return {
+    startMonthKey: `${year - 1}-12`,
+    endMonthKey: `${year}-12`,
+  };
+}
+
+function getDefaultPowerCostRangeMonthKeys(date = new Date()) {
+  const currentMonthKey = getMonthKeyFromParts(date.getFullYear(), date.getMonth() + 1);
+
+  return {
+    startMonthKey: getPreviousMonthKey(currentMonthKey),
+    endMonthKey: currentMonthKey,
   };
 }
 
@@ -322,8 +335,8 @@ function getYearDataForMonth(collection, monthKey) {
   return (collection ?? []).find((yearData) => Number(yearData?.year) === year) || (collection ?? [])[0] || {};
 }
 
-function getTrendData(yearData, monthKey, totalKeys, yearDataCollection = []) {
-  const reportYear = Number(yearData?.year ?? String(monthKey || '').slice(0, 4));
+function getTrendRangeData(yearData, startMonthKey, endMonthKey, totalKeys, yearDataCollection = []) {
+  const reportYear = Number(yearData?.year ?? String(endMonthKey || '').slice(0, 4));
   const previousDecemberKey = Number.isFinite(reportYear) ? `${reportYear - 1}-12` : '';
   const previousYearData = yearDataCollection.find((item) => Number(item?.year) === reportYear - 1);
   const previousDecemberRow = previousYearData?.rows?.find((item) => item.key === previousDecemberKey);
@@ -331,14 +344,22 @@ function getTrendData(yearData, monthKey, totalKeys, yearDataCollection = []) {
     ...(previousDecemberRow ? [previousDecemberRow] : []),
     ...(yearData?.rows ?? []),
   ];
-  const row = rows.find((item) => item.key === monthKey);
-  const trendRows = rows.filter((item) => String(item.key || '').localeCompare(monthKey) <= 0);
+  const safeStartMonthKey = startMonthKey || previousDecemberKey;
+  const safeEndMonthKey = endMonthKey || rows[rows.length - 1]?.key || safeStartMonthKey;
+  const activeRow = rows
+    .filter((item) => String(item.key || '').localeCompare(safeEndMonthKey) <= 0)
+    .sort((first, second) => String(first.key || '').localeCompare(String(second.key || '')))
+    .pop();
+  const trendRows = rows.filter((item) => {
+    const key = String(item.key || '');
+    return key.localeCompare(safeStartMonthKey) >= 0 && key.localeCompare(safeEndMonthKey) <= 0;
+  });
 
   return {
     ...(yearData ?? {}),
-    rows: trendRows.length ? trendRows : row ? [row] : [],
+    rows: trendRows.length ? trendRows : activeRow ? [activeRow] : [],
     ...totalKeys.reduce((totals, { source, target }) => {
-      totals[target] = row ? Number(row[source] ?? 0) : 0;
+      totals[target] = activeRow ? Number(activeRow[source] ?? 0) : 0;
       return totals;
     }, {}),
   };
@@ -463,6 +484,24 @@ function getDailyDateKeys(dashboard) {
     .sort();
 }
 
+function isDateWithinLimits(dateKey, limits) {
+  return Boolean(
+    getDatePartsFromKey(dateKey) &&
+    (!limits.min || dateKey >= limits.min) &&
+    (!limits.max || dateKey <= limits.max)
+  );
+}
+
+function normalizeSelectedExportPages(pages = SUMMARY_EXPORT_PAGE_NUMBERS) {
+  const selected = new Set(
+    (pages || [])
+      .map((page) => Number(page))
+      .filter((page) => SUMMARY_EXPORT_PAGE_NUMBERS.includes(page))
+  );
+
+  return SUMMARY_EXPORT_PAGE_NUMBERS.filter((page) => selected.has(page));
+}
+
 function ExportMonthPicker({ activePickerId, label, monthOptions = [], pickerId, setActivePickerId, value, onChange }) {
   const selectedMonthKey = value || monthOptions[monthOptions.length - 1]?.key || getCurrentMonthKey();
   const selectedYear = Number(String(selectedMonthKey).slice(0, 4)) || getCurrentYear();
@@ -517,6 +556,55 @@ function ExportMonthPicker({ activePickerId, label, monthOptions = [], pickerId,
                 }}
               >
                 {MONTH_SHORT_LABELS[Number(monthKey.slice(5, 7)) - 1]}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExportPagesPicker({ activePickerId, pages = [], pickerId, setActivePickerId, onChange }) {
+  const selectedPages = normalizeSelectedExportPages(pages);
+  const selectedPageSet = new Set(selectedPages);
+  const isOpen = activePickerId === pickerId;
+  const label = selectedPages.length === SUMMARY_EXPORT_PAGE_NUMBERS.length
+    ? 'All pages'
+    : `${selectedPages.length} pages`;
+
+  function togglePage(pageNumber) {
+    const nextPages = selectedPageSet.has(pageNumber)
+      ? selectedPages.filter((page) => page !== pageNumber)
+      : [...selectedPages, pageNumber].sort((first, second) => first - second);
+
+    onChange(nextPages.length ? nextPages : selectedPages);
+  }
+
+  return (
+    <div className="summary-export-pages-picker">
+      <button
+        type="button"
+        className="summary-picker-trigger summary-pages-trigger"
+        aria-label="Pages to export"
+        aria-expanded={isOpen}
+        title="Pages to export"
+        onClick={() => setActivePickerId(isOpen ? null : pickerId)}
+      >
+        <strong>{label}</strong>
+        <ChevronDown size={15} />
+      </button>
+      {isOpen ? (
+        <div className="summary-month-panel summary-pages-panel">
+          <div className="summary-pages-grid">
+            {SUMMARY_EXPORT_PAGE_NUMBERS.map((pageNumber) => (
+              <button
+                type="button"
+                className={selectedPageSet.has(pageNumber) ? 'active' : undefined}
+                key={pageNumber}
+                onClick={() => togglePage(pageNumber)}
+              >
+                {pageNumber}
               </button>
             ))}
           </div>
@@ -632,6 +720,10 @@ function SummaryMonthPicker({ id, isOpen, onOpenChange, onSelect, reportInputs, 
   }, [selectedYear]);
 
   useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
     function closeOutside(event) {
       if (pickerRef.current && !pickerRef.current.contains(event.target)) {
         onOpenChange('');
@@ -645,7 +737,7 @@ function SummaryMonthPicker({ id, isOpen, onOpenChange, onSelect, reportInputs, 
       document.removeEventListener('mousedown', closeOutside);
       document.removeEventListener('focusin', closeOutside);
     };
-  }, [onOpenChange]);
+  }, [isOpen, onOpenChange]);
 
   return (
     <div className="summary-report-field summary-report-month-field" ref={pickerRef}>
@@ -729,13 +821,20 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
   const fallbackMonthKey = getMonthKey(initialYear, new Date().getMonth());
   const exportMonthOptions = buildExportMonthOptions(dashboard);
   const exportDailyDateKeys = getDailyDateKeys(dashboard);
+  const defaultDailyRange = getDefaultDailyExportRange();
+  const defaultGraphRange = getDefaultGraphRangeMonthKeys();
+  const defaultPowerCostRange = getDefaultPowerCostRangeMonthKeys();
   const exportDateLimits = {
-    min: exportDailyDateKeys[0] || getCurrentDateKey(),
-    max: exportDailyDateKeys[exportDailyDateKeys.length - 1] || getCurrentDateKey(),
+    min: [
+      exportDailyDateKeys[0],
+      defaultDailyRange.startDate,
+    ].filter(Boolean).sort()[0] || getCurrentDateKey(),
+    max: [
+      exportDailyDateKeys[exportDailyDateKeys.length - 1],
+      defaultDailyRange.endDate,
+      getCurrentDateKey(),
+    ].filter(Boolean).sort().pop() || getCurrentDateKey(),
   };
-  const defaultGraphStartMonthKey = `${getCurrentYear()}-01`;
-  const defaultGraphEndMonthKey = getCurrentMonthKey();
-  const defaultPowerCostRange = getPowerCostRangeMonthKeys(effectiveReportInputs, getPreviousMonthKey(defaultGraphEndMonthKey), defaultGraphEndMonthKey);
   const [selectedMonths, setSelectedMonths] = useState(() => ({
     billed: getLatestInputMonth(effectiveReportInputs, ['billedVolume'], fallbackMonthKey),
     electric: getLatestInputMonth(effectiveReportInputs, ['totalPower', 'leyecoConsumption', 'effectiveRate'], fallbackMonthKey),
@@ -746,21 +845,22 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [activeExportPickerId, setActiveExportPickerId] = useState(null);
   const [exportOptions, setExportOptions] = useState(() => ({
-    dailyStartDate: exportDateLimits.max,
-    dailyEndDate: exportDateLimits.max,
-    graphStartMonthKey: defaultGraphStartMonthKey,
-    graphEndMonthKey: defaultGraphEndMonthKey,
+    dailyStartDate: defaultDailyRange.startDate,
+    dailyEndDate: defaultDailyRange.endDate,
+    graphStartMonthKey: defaultGraphRange.startMonthKey,
+    graphEndMonthKey: defaultGraphRange.endMonthKey,
     powerCostStartMonthKey: defaultPowerCostRange.startMonthKey,
     powerCostEndMonthKey: defaultPowerCostRange.endMonthKey,
+    selectedPages: SUMMARY_EXPORT_PAGE_NUMBERS,
   }));
   const exportMenuRef = useRef(null);
 
-  const requestedDailyStartDate = exportDailyDateKeys.includes(exportOptions.dailyStartDate)
+  const requestedDailyStartDate = isDateWithinLimits(exportOptions.dailyStartDate, exportDateLimits)
     ? exportOptions.dailyStartDate
-    : exportDateLimits.max;
-  const requestedDailyEndDate = exportDailyDateKeys.includes(exportOptions.dailyEndDate)
+    : defaultDailyRange.startDate;
+  const requestedDailyEndDate = isDateWithinLimits(exportOptions.dailyEndDate, exportDateLimits)
     ? exportOptions.dailyEndDate
-    : requestedDailyStartDate;
+    : defaultDailyRange.endDate;
   const exportDailyStartDate = requestedDailyStartDate.localeCompare(requestedDailyEndDate) <= 0
     ? requestedDailyStartDate
     : requestedDailyEndDate;
@@ -769,10 +869,10 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
     : exportDailyStartDate;
   const exportGraphStartMonthKey = exportMonthOptions.some((month) => month.key === exportOptions.graphStartMonthKey)
     ? exportOptions.graphStartMonthKey
-    : defaultGraphStartMonthKey;
+    : defaultGraphRange.startMonthKey;
   const requestedGraphEndMonthKey = exportMonthOptions.some((month) => month.key === exportOptions.graphEndMonthKey)
     ? exportOptions.graphEndMonthKey
-    : defaultGraphEndMonthKey;
+    : defaultGraphRange.endMonthKey;
   const exportGraphEndMonthKey = requestedGraphEndMonthKey.localeCompare(exportGraphStartMonthKey) >= 0
     ? requestedGraphEndMonthKey
     : exportGraphStartMonthKey;
@@ -874,14 +974,14 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
       const chemicalYearData = getYearDataForMonth(monthlyChemicalUsageYears, exportGraphEndMonthKey);
 
       await exportSummaryReportPptx({
-        selectedMonthlyProduction: getTrendData(productionYearData, exportGraphEndMonthKey, [
+        selectedMonthlyProduction: getTrendRangeData(productionYearData, exportGraphStartMonthKey, exportGraphEndMonthKey, [
           { source: 'production', target: 'totalProduction' },
           { source: 'production', target: 'averageProduction' },
         ], cycleMonthlyProductionYears),
         selectedBilledVolumes: buildBilledVolumeInputs(effectiveReportInputs),
         selectedDailyProduction: getDailyProductionRangeData(dashboard, exportDailyStartDate, exportDailyEndDate, reportMonthKey),
-        selectedPowerConsumption: getTrendData(powerYearData, exportGraphEndMonthKey, [{ source: 'totalPower', target: 'totalPower' }], monthlyPowerConsumptionYears),
-        selectedChemicalUsage: getTrendData(chemicalYearData, exportGraphEndMonthKey, [
+        selectedPowerConsumption: getTrendRangeData(powerYearData, exportGraphStartMonthKey, exportGraphEndMonthKey, [{ source: 'totalPower', target: 'totalPower' }], monthlyPowerConsumptionYears),
+        selectedChemicalUsage: getTrendRangeData(chemicalYearData, exportGraphStartMonthKey, exportGraphEndMonthKey, [
           { source: 'chlorineUsage', target: 'totalChlorine' },
           { source: 'peroxideUsage', target: 'totalPeroxide' },
         ], monthlyChemicalUsageYears),
@@ -896,6 +996,7 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
           graphEndMonthKey: exportGraphEndMonthKey,
           powerCostStartMonthKey: exportPowerCostStartMonthKey,
           powerCostEndMonthKey: exportPowerCostEndMonthKey,
+          selectedPages: normalizeSelectedExportPages(exportOptions.selectedPages),
           reportInputs: effectiveReportInputs,
           productionYear: reportYear,
           powerYear: reportYear,
@@ -963,76 +1064,94 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
           </button>
           {exportMenuOpen ? (
             <div className="summary-export-panel">
-              <div className="summary-export-range-row">
-                <ExportDatePicker
-                  activePickerId={activeExportPickerId}
-                  label="Daily date from"
-                  pickerId="summary-daily-start"
-                  setActivePickerId={setActiveExportPickerId}
-                  value={exportDailyStartDate}
-                  min={exportDateLimits.min}
-                  max={exportDateLimits.max}
-                  onChange={(dailyStartDate) => setExportOptions((currentOptions) => ({ ...currentOptions, dailyStartDate }))}
-                />
-                <ExportDatePicker
-                  activePickerId={activeExportPickerId}
-                  label="Daily date to"
-                  pickerId="summary-daily-end"
-                  setActivePickerId={setActiveExportPickerId}
-                  value={exportDailyEndDate}
-                  min={exportDateLimits.min}
-                  max={exportDateLimits.max}
-                  onChange={(dailyEndDate) => setExportOptions((currentOptions) => ({ ...currentOptions, dailyEndDate }))}
-                />
+              <div className="summary-export-group">
+                <strong>Page 4</strong>
+                <div className="summary-export-range-row">
+                  <ExportDatePicker
+                    activePickerId={activeExportPickerId}
+                    label="Daily date from"
+                    pickerId="summary-daily-start"
+                    setActivePickerId={setActiveExportPickerId}
+                    value={exportDailyStartDate}
+                    min={exportDateLimits.min}
+                    max={exportDateLimits.max}
+                    onChange={(dailyStartDate) => setExportOptions((currentOptions) => ({ ...currentOptions, dailyStartDate }))}
+                  />
+                  <ExportDatePicker
+                    activePickerId={activeExportPickerId}
+                    label="Daily date to"
+                    pickerId="summary-daily-end"
+                    setActivePickerId={setActiveExportPickerId}
+                    value={exportDailyEndDate}
+                    min={exportDateLimits.min}
+                    max={exportDateLimits.max}
+                    onChange={(dailyEndDate) => setExportOptions((currentOptions) => ({ ...currentOptions, dailyEndDate }))}
+                  />
+                </div>
               </div>
-              <div className="summary-export-range-row">
-                <ExportMonthPicker
-                  activePickerId={activeExportPickerId}
-                  label="Monthly graphs from"
-                  monthOptions={exportMonthOptions}
-                  pickerId="summary-graph-start"
-                  setActivePickerId={setActiveExportPickerId}
-                  value={exportGraphStartMonthKey}
-                  onChange={(graphStartMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, graphStartMonthKey }))}
-                />
-                <ExportMonthPicker
-                  activePickerId={activeExportPickerId}
-                  label="Monthly graphs to"
-                  monthOptions={exportMonthOptions}
-                  pickerId="summary-graph-end"
-                  setActivePickerId={setActiveExportPickerId}
-                  value={exportGraphEndMonthKey}
-                  onChange={(graphEndMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, graphEndMonthKey }))}
-                />
+              <div className="summary-export-group">
+                <strong>Page 2, 3, 5 - 9</strong>
+                <div className="summary-export-range-row">
+                  <ExportMonthPicker
+                    activePickerId={activeExportPickerId}
+                    label="Monthly graphs from"
+                    monthOptions={exportMonthOptions}
+                    pickerId="summary-graph-start"
+                    setActivePickerId={setActiveExportPickerId}
+                    value={exportGraphStartMonthKey}
+                    onChange={(graphStartMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, graphStartMonthKey }))}
+                  />
+                  <ExportMonthPicker
+                    activePickerId={activeExportPickerId}
+                    label="Monthly graphs to"
+                    monthOptions={exportMonthOptions}
+                    pickerId="summary-graph-end"
+                    setActivePickerId={setActiveExportPickerId}
+                    value={exportGraphEndMonthKey}
+                    onChange={(graphEndMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, graphEndMonthKey }))}
+                  />
+                </div>
               </div>
-              <div className="summary-export-range-row">
-                <ExportMonthPicker
-                  activePickerId={activeExportPickerId}
-                  label="Pages 10-13 from"
-                  monthOptions={exportMonthOptions}
-                  pickerId="summary-power-cost-start"
-                  setActivePickerId={setActiveExportPickerId}
-                  value={exportPowerCostStartMonthKey}
-                  onChange={(powerCostStartMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, powerCostStartMonthKey }))}
-                />
-                <ExportMonthPicker
-                  activePickerId={activeExportPickerId}
-                  label="Pages 10-13 to"
-                  monthOptions={exportMonthOptions}
-                  pickerId="summary-power-cost-end"
-                  setActivePickerId={setActiveExportPickerId}
-                  value={exportPowerCostEndMonthKey}
-                  onChange={(powerCostEndMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, powerCostEndMonthKey }))}
-                />
+              <div className="summary-export-group">
+                <strong>Pages 10 - 13</strong>
+                <div className="summary-export-range-row">
+                  <ExportMonthPicker
+                    activePickerId={activeExportPickerId}
+                    label="From"
+                    monthOptions={exportMonthOptions}
+                    pickerId="summary-power-cost-start"
+                    setActivePickerId={setActiveExportPickerId}
+                    value={exportPowerCostStartMonthKey}
+                    onChange={(powerCostStartMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, powerCostStartMonthKey }))}
+                  />
+                  <ExportMonthPicker
+                    activePickerId={activeExportPickerId}
+                    label="To"
+                    monthOptions={exportMonthOptions}
+                    pickerId="summary-power-cost-end"
+                    setActivePickerId={setActiveExportPickerId}
+                    value={exportPowerCostEndMonthKey}
+                    onChange={(powerCostEndMonthKey) => setExportOptions((currentOptions) => ({ ...currentOptions, powerCostEndMonthKey }))}
+                  />
+                </div>
               </div>
               <div className="summary-export-actions">
-                <button type="button" className="summary-export-cancel" onClick={() => setExportMenuOpen(false)}>
-                  Cancel
-                </button>
-                <button type="button" className="summary-export-confirm" disabled={exporting} onClick={handleExport}>
-                  <Download size={15} />
-                  PPTX
-                </button>
+                <ExportPagesPicker
+                  activePickerId={activeExportPickerId}
+                  pages={exportOptions.selectedPages}
+                  pickerId="summary-export-pages"
+                  setActivePickerId={setActiveExportPickerId}
+                  onChange={(selectedPages) => setExportOptions((currentOptions) => ({ ...currentOptions, selectedPages }))}
+                />
+                <div className="summary-export-action-buttons">
+                  <button type="button" className="summary-export-cancel" onClick={() => setExportMenuOpen(false)}>
+                    Cancel
+                  </button>
+                  <button type="button" className="summary-export-confirm" disabled={exporting} onClick={handleExport}>
+                    <Download size={15} />
+                    PPTX
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}

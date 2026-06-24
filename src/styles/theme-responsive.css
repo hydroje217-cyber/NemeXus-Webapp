@@ -264,6 +264,10 @@
   color: #9db1bb;
 }
 
+.dark-mode .summary-export-group > strong {
+  color: #f0f7f8;
+}
+
 .dark-mode .summary-export-field select,
 .dark-mode .summary-export-field input[type="date"],
 .dark-mode .summary-export-field input[type="month"],
@@ -295,7 +299,8 @@
 }
 
 .dark-mode .summary-month-grid button,
-.dark-mode .summary-date-grid button {
+.dark-mode .summary-date-grid button,
+.dark-mode .summary-pages-grid button {
   color: #c9dbe0;
 }
 
@@ -305,13 +310,15 @@
 
 .dark-mode .summary-month-head button:hover:not(:disabled),
 .dark-mode .summary-month-grid button:hover:not(:disabled),
-.dark-mode .summary-date-grid button:hover:not(:disabled) {
+.dark-mode .summary-date-grid button:hover:not(:disabled),
+.dark-mode .summary-pages-grid button:hover {
   background: #243848;
   color: #f0f7f8;
 }
 
 .dark-mode .summary-month-grid button.active,
-.dark-mode .summary-date-grid button.active {
+.dark-mode .summary-date-grid button.active,
+.dark-mode .summary-pages-grid button.active {
   background: #647386;
   color: #ffffff;
 }
