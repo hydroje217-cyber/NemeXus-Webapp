@@ -2774,16 +2774,18 @@
   }
 }
 
-@media (min-width: 981px) and (max-width: 1600px) {
-  .topbar {
-    position: sticky;
-    top: 8px;
+@media (min-width: 981px) {
+  .sidebar-scrim {
+    display: none;
   }
 
-  .live-summary-panel,
-  .analytics-panel,
-  .operator-list-panel {
-    scroll-margin-top: 140px;
+  .sidebar.is-open ~ .content {
+    margin-left: 320px;
+    padding-left: 18px;
+  }
+
+  .sidebar-toggle-button[aria-expanded="true"] {
+    display: none;
   }
 
   .sidebar-scrim {
@@ -2823,6 +2825,19 @@
     background: #173342;
     border-color: #2d4654;
     color: #79dbe6;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1600px) {
+  .topbar {
+    position: sticky;
+    top: 8px;
+  }
+
+  .live-summary-panel,
+  .analytics-panel,
+  .operator-list-panel {
+    scroll-margin-top: 140px;
   }
 
   .analytics-panel .summary-pill {

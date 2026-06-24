@@ -15,6 +15,7 @@ import {
   isGeneralManagerRole,
   isAdminRole,
   isOfficeRole,
+  isSummaryReportRole,
   resetProfilePassword,
   updateAccountPresence,
   updateProfileEmail,
@@ -43,6 +44,7 @@ export default function App() {
 
   const isAdmin = isAdminRole(profile?.role);
   const isGeneralManager = isGeneralManagerRole(profile?.role);
+  const canAccessSummaryReport = isSummaryReportRole(profile?.role);
   const canUseDashboard = isOfficeRole(profile?.role);
 
   async function loadDashboard({ silent = false } = {}) {
@@ -111,15 +113,21 @@ export default function App() {
       }
 
       setSession(data.session ?? null);
+      if (data.session) {
+        setActiveView('dashboard');
+      }
       loadProfile(data.session ?? null);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) {
         return;
       }
 
       setSession(nextSession ?? null);
+      if (event === 'SIGNED_IN' && nextSession) {
+        setActiveView('dashboard');
+      }
       loadProfile(nextSession ?? null);
     });
 
@@ -131,9 +139,13 @@ export default function App() {
 
   useEffect(() => {
     if (!isAdmin && (activeView === 'approvals' || activeView === 'accounts' || activeView === 'login-logs')) {
-      setActiveView('readings');
+      setActiveView('dashboard');
     }
-  }, [activeView, isAdmin]);
+
+    if (!canAccessSummaryReport && activeView === 'summary-report') {
+      setActiveView('dashboard');
+    }
+  }, [activeView, canAccessSummaryReport, isAdmin]);
 
   useEffect(() => {
     if (!supabaseReady || !supabase || !canUseDashboard) {
@@ -216,6 +228,7 @@ export default function App() {
     setProfile(null);
     setDashboard(null);
     setLastUpdatedAt(null);
+    setActiveView('dashboard');
   }
 
   async function handleUpdateAccount({ email, password }) {
@@ -357,6 +370,7 @@ export default function App() {
     <DashboardScreen
       activeView={activeView}
       dashboard={dashboard}
+      canAccessSummaryReport={canAccessSummaryReport}
       isAdmin={isAdmin}
       isGeneralManager={isGeneralManager}
       loading={loading}

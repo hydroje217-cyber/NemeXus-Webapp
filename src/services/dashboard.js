@@ -15,6 +15,7 @@ import { enrichReadingsWithInferredShiftOwnership } from '../utils/shifts';
 
 export const GENERAL_MANAGER_ROLE = 'general_manager';
 export const ADMIN_ROLES = new Set(['admin', GENERAL_MANAGER_ROLE]);
+const SUMMARY_REPORT_ROLES = new Set([...ADMIN_ROLES, 'manager']);
 const OFFICE_ROLES = new Set(['manager', 'supervisor', 'admin', GENERAL_MANAGER_ROLE]);
 
 const DAILY_SUMMARY_SELECT =
@@ -619,6 +620,10 @@ export function isOfficeRole(role) {
 
 export function isAdminRole(role) {
   return ADMIN_ROLES.has(normalizeRole(role));
+}
+
+export function isSummaryReportRole(role) {
+  return SUMMARY_REPORT_ROLES.has(normalizeRole(role));
 }
 
 export function isGeneralManagerRole(role) {

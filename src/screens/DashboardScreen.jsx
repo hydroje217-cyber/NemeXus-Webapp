@@ -296,12 +296,15 @@ function buildLoginLogNotifications(loginLogs = []) {
   });
 }
 
-function getTabs(isAdmin) {
+function getTabs(isAdmin, canAccessSummaryReport) {
   const tabs = [
     { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { key: 'readings', label: 'Readings', icon: Droplets },
-    { key: 'summary-report', label: 'Summary Report', icon: FileText },
   ];
+
+  if (canAccessSummaryReport) {
+    tabs.push({ key: 'summary-report', label: 'Summary Report', icon: FileText });
+  }
 
   if (isAdmin) {
     tabs.push({ key: 'approvals', label: 'Approvals', icon: CheckCircle2 });
@@ -373,6 +376,7 @@ const DEEPWELL_READING_FIELDS = [
 
 export default function DashboardScreen({
   activeView,
+  canAccessSummaryReport,
   dashboard,
   isAdmin,
   isGeneralManager,
@@ -394,7 +398,7 @@ export default function DashboardScreen({
   onSignOut,
   onThemeToggle,
 }) {
-  const tabs = getTabs(isAdmin);
+  const tabs = getTabs(isAdmin, canAccessSummaryReport);
   const recentReadings = dashboard?.recentReadings ?? [];
   const rawOperationAlerts = buildOperationAlerts(dashboard);
   const [isCurrentUserOnline, setIsCurrentUserOnline] = useState(() => {
@@ -557,7 +561,7 @@ export default function DashboardScreen({
       );
     }
 
-    if (activeView === 'summary-report') {
+    if (activeView === 'summary-report' && canAccessSummaryReport) {
       return (
         <SummaryReportScreen
           dashboard={dashboard}
