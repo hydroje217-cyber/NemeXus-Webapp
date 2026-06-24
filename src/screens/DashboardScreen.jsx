@@ -6,6 +6,7 @@ import {
   Bell,
   CheckCircle2,
   ChevronDown,
+  Download,
   Droplets,
   Eye,
   EyeOff,
@@ -39,6 +40,8 @@ import {
   saveNotificationReadKeys,
   saveNotificationUnreadCount,
 } from '../utils/notificationState';
+
+const APP_DOWNLOAD_URL = 'https://expo.dev/accounts/je-hydro/projects/nemexus/builds/4320720f-d0ed-4ee5-954f-428cb3b78a0b?fbclid=IwY2xjawSodu9leHRuA2FlbQIxMABicmlkETFKblNMeVFaQm9jcFc0Zm51c3J0YwZhcHBfaWQQMjIyMDM5MTc4ODIwMDg5MgABHtspYejnl1rBqdj-r0muBL49uvTLVkZN5JUVnIN0mzayWhMIoxV3DscP1Ss6_aem_xEY6IgIc3ul1JtqsIQ31cA';
 
 function titleize(value) {
   if (value === 'login-logs') {
@@ -431,6 +434,7 @@ export default function DashboardScreen({
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isEditAccountOpen, setIsEditAccountOpen] = useState(false);
+  const [isDownloadAppOpen, setIsDownloadAppOpen] = useState(false);
   const [accountEmail, setAccountEmail] = useState(profile?.email || session?.user?.email || '');
   const [accountPassword, setAccountPassword] = useState('');
   const [showAccountPassword, setShowAccountPassword] = useState(false);
@@ -718,6 +722,16 @@ export default function DashboardScreen({
     setIsEditAccountOpen(true);
   }
 
+  function handleDownloadAppOpen() {
+    setIsBrandMenuOpen(false);
+    setIsDownloadAppOpen(true);
+  }
+
+  function handleDownloadAppConfirm() {
+    window.open(APP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
+    setIsDownloadAppOpen(false);
+  }
+
   async function handleAccountSubmit(event) {
     event.preventDefault();
 
@@ -954,6 +968,14 @@ export default function DashboardScreen({
                 >
                   <Pencil size={16} />
                   Edit account
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleDownloadAppOpen}
+                >
+                  <Download size={16} />
+                  Download App
                 </button>
                 <button
                   type="button"
@@ -1218,6 +1240,38 @@ export default function DashboardScreen({
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {isDownloadAppOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsDownloadAppOpen(false)}>
+          <section
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="download-app-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="dialog-close-button"
+              type="button"
+              aria-label="Close download confirmation"
+              onClick={() => setIsDownloadAppOpen(false)}
+            >
+              <X size={18} />
+            </button>
+            <h3 id="download-app-title">Download App?</h3>
+            <p>This will open the NemeXus mobile app build download page in a new tab.</p>
+            <div className="confirm-dialog-actions">
+              <button type="button" className="secondary-action" onClick={() => setIsDownloadAppOpen(false)}>
+                Cancel
+              </button>
+              <button type="button" className="primary-action" onClick={handleDownloadAppConfirm}>
+                <Download size={16} />
+                Download
+              </button>
+            </div>
           </section>
         </div>
       ) : null}
