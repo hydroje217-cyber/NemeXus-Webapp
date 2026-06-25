@@ -6,6 +6,7 @@ import {
   Bell,
   CheckCircle2,
   ChevronDown,
+  Download,
   Droplets,
   Eye,
   EyeOff,
@@ -39,6 +40,8 @@ import {
   saveNotificationReadKeys,
   saveNotificationUnreadCount,
 } from '../utils/notificationState';
+
+const APP_DOWNLOAD_URL = 'https://drive.google.com/uc?export=download&id=11zZjiC6jzaPRWET_fP6Gb9rEalwxnhmK';
 
 function titleize(value) {
   if (value === 'login-logs') {
@@ -431,6 +434,7 @@ export default function DashboardScreen({
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isEditAccountOpen, setIsEditAccountOpen] = useState(false);
+  const [isDownloadConfirmOpen, setIsDownloadConfirmOpen] = useState(false);
   const [accountEmail, setAccountEmail] = useState(profile?.email || session?.user?.email || '');
   const [accountPassword, setAccountPassword] = useState('');
   const [showAccountPassword, setShowAccountPassword] = useState(false);
@@ -718,6 +722,16 @@ export default function DashboardScreen({
     setIsEditAccountOpen(true);
   }
 
+  function handleDownloadAppOpen() {
+    setIsBrandMenuOpen(false);
+    setIsDownloadConfirmOpen(true);
+  }
+
+  function handleDownloadAppConfirm() {
+    window.open(APP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
+    setIsDownloadConfirmOpen(false);
+  }
+
   async function handleAccountSubmit(event) {
     event.preventDefault();
 
@@ -954,6 +968,14 @@ export default function DashboardScreen({
                 >
                   <Pencil size={16} />
                   Edit account
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={handleDownloadAppOpen}
+                >
+                  <Download size={16} />
+                  Download app
                 </button>
                 <button
                   type="button"
@@ -1218,6 +1240,42 @@ export default function DashboardScreen({
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      ) : null}
+
+      {isDownloadConfirmOpen ? (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsDownloadConfirmOpen(false)}>
+          <section
+            className="confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="download-app-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              className="dialog-close-button"
+              type="button"
+              aria-label="Close download confirmation"
+              onClick={() => setIsDownloadConfirmOpen(false)}
+            >
+              <X size={18} />
+            </button>
+            <h3 id="download-app-title">Download app?</h3>
+            <p>The NemeXus app file will open from Google Drive in a new tab.</p>
+            <div className="confirm-dialog-actions">
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => setIsDownloadConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button type="button" className="primary-action" onClick={handleDownloadAppConfirm}>
+                <Download size={16} />
+                Download app
+              </button>
+            </div>
           </section>
         </div>
       ) : null}
