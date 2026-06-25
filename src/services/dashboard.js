@@ -34,6 +34,8 @@ const LOGIN_LOG_SELECT =
 const LOGIN_LOG_FALLBACK_SELECT = 'id, user_id, email, role, browser, device, user_agent, created_at';
 const LEGACY_LOGIN_LOG_SELECT = 'id, profile_id, email, full_name, role, logged_in_at, user_agent';
 const MONTHLY_BILLED_VOLUME_SELECT = 'id, month_key, billed_volume_m3, created_at, updated_at';
+const SUMMARY_REPORT_INPUT_SELECT =
+  'id, month_key, billed_volume_m3, nrw_m3, plant_kwh, leyeco_kwh, rate_per_kwh, electric_bill, intake_bill, chlorination_bill, operating_hours, production_m3, intake_kwh, chlorination_kwh, sec, motor_load, reading_date_label, created_by, updated_by, created_at, updated_at';
 const ANALYTICS_YEAR_COUNT = 2;
 const SUPABASE_PAGE_SIZE = 1000;
 
@@ -98,6 +100,77 @@ function normalizeDailySummary(row) {
     },
     siteType
   );
+}
+
+function numberOrNull(value) {
+  if (value === '' || value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function textOrNull(value) {
+  const text = String(value ?? '').trim();
+  return text || null;
+}
+
+function normalizeSummaryReportInput(row = {}) {
+  return {
+    billedVolume: row.billed_volume_m3,
+    nrw: row.nrw_m3,
+    totalPower: row.plant_kwh,
+    leyecoConsumption: row.leyeco_kwh,
+    effectiveRate: row.rate_per_kwh,
+    electricBill: row.electric_bill,
+    intakeBill: row.intake_bill,
+    chlorinationBill: row.chlorination_bill,
+    operatingHours: row.operating_hours,
+    powerCostProduction: row.production_m3,
+    deepwellPower: row.intake_kwh,
+    chlorinationPower: row.chlorination_kwh,
+    secOverride: row.sec,
+    motorLoadOverride: row.motor_load,
+    dateLabel: row.reading_date_label || '',
+    createdBy: row.created_by,
+    updatedBy: row.updated_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function normalizeSummaryReportInputRows(rows = []) {
+  return rows.reduce((inputs, row) => {
+    if (row?.month_key) {
+      inputs[row.month_key] = normalizeSummaryReportInput(row);
+    }
+
+    return inputs;
+  }, {});
+}
+
+function buildSummaryReportInputPayload({ monthKey, input = {}, userId }) {
+  return {
+    month_key: monthKey,
+    billed_volume_m3: numberOrNull(input.billedVolume),
+    nrw_m3: numberOrNull(input.nrw),
+    plant_kwh: numberOrNull(input.totalPower),
+    leyeco_kwh: numberOrNull(input.leyecoConsumption),
+    rate_per_kwh: numberOrNull(input.effectiveRate),
+    electric_bill: numberOrNull(input.electricBill),
+    intake_bill: numberOrNull(input.intakeBill),
+    chlorination_bill: numberOrNull(input.chlorinationBill),
+    operating_hours: numberOrNull(input.operatingHours),
+    production_m3: numberOrNull(input.powerCostProduction),
+    intake_kwh: numberOrNull(input.deepwellPower),
+    chlorination_kwh: numberOrNull(input.chlorinationPower),
+    sec: numberOrNull(input.secOverride),
+    motor_load: numberOrNull(input.motorLoadOverride),
+    reading_date_label: textOrNull(input.dateLabel),
+    created_by: userId,
+    updated_by: userId,
+  };
 }
 
 function normalizeRawReading(row, siteType) {
@@ -594,6 +667,19 @@ async function fetchMonthlyBilledVolumes() {
   return result.data ?? [];
 }
 
+async function fetchSummaryReportInputs() {
+  const result = await supabase
+    .from('summary_report_inputs')
+    .select(SUMMARY_REPORT_INPUT_SELECT)
+    .order('month_key', { ascending: true });
+
+  if (result.error) {
+    return {};
+  }
+
+  return normalizeSummaryReportInputRows(result.data ?? []);
+}
+
 export function normalizeRole(role) {
   if (role === 'general manager') {
     return GENERAL_MANAGER_ROLE;
@@ -676,6 +762,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     operators,
     monthlySummaries,
     monthlyBilledVolumes,
+    summaryReportInputs,
     analyticsRawReadings,
   ] = await Promise.all([
     supabase
@@ -727,6 +814,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       .lte('summary_date', analyticsRange.summaryToDate)
       .order('summary_date', { ascending: true }),
     fetchMonthlyBilledVolumes(),
+    fetchSummaryReportInputs(),
     loadPagedRawReadings({
       fromIso: analyticsRange.readingFromIso,
       toIso: analyticsRange.readingToIso,
@@ -776,6 +864,7 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
     monthlyProduction: buildMonthlyProduction(monthlyChlorination, { dailySummaries }),
     monthlyProductionYears: buildMonthlyProductionYears(monthlyChlorination, { dailySummaries }),
     monthlyBilledVolumes,
+    summaryReportInputs,
     dailyProduction: buildDailyProduction(monthlyChlorination, { dailySummaries }),
     dailyProductionMonths: buildDailyProductionMonths(monthlyChlorination, { dailySummaries }),
     dailyProductionYears: buildDailyProductionYears(monthlyChlorination, { dailySummaries }),
@@ -793,6 +882,34 @@ export async function getDashboardSnapshot({ limit = 50 } = {}) {
       chlorinationReadings: monthlyChlorination,
       deepwellReadings: monthlyDeepwell,
     }, { dailySummaries }),
+  };
+}
+
+export async function saveSummaryReportInput({ monthKey, input }) {
+  if (!monthKey || !/^\d{4}-\d{2}$/.test(String(monthKey))) {
+    throw new Error('Choose a valid summary report month.');
+  }
+
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const userId = userData?.user?.id;
+
+  if (userError || !userId) {
+    throw new Error(userError?.message || 'You must be signed in to save summary report inputs.');
+  }
+
+  const { data, error } = await supabase
+    .from('summary_report_inputs')
+    .upsert(buildSummaryReportInputPayload({ monthKey, input, userId }), { onConflict: 'month_key' })
+    .select(SUMMARY_REPORT_INPUT_SELECT)
+    .single();
+
+  if (error) {
+    throw new Error(error.message || 'Failed to save summary report inputs.');
+  }
+
+  return {
+    monthKey: data.month_key,
+    input: normalizeSummaryReportInput(data),
   };
 }
 

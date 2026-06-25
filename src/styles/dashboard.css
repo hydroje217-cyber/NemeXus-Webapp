@@ -1154,15 +1154,45 @@
   line-height: 1.2;
 }
 
+.summary-report-save-message {
+  margin: 0;
+  color: #0f8f9f;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
 .summary-report-status {
+  max-width: min(280px, 100%);
   min-width: 66px;
   border-radius: 999px;
   display: inline-flex;
+  align-items: center;
+  flex-direction: row;
+  gap: 4px;
   justify-content: center;
+  min-height: 24px;
   padding: 5px 8px;
   font-size: 0.62rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.summary-report-status strong,
+.summary-report-status span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-report-status span {
+  flex: 0 0 auto;
+}
+
+.summary-report-status strong {
+  flex: 1 1 auto;
+  font-size: 0.58rem;
+  text-transform: none;
 }
 
 .summary-report-status.added,
@@ -1180,6 +1210,11 @@
 @media (min-width: 761px) and (max-width: 1180px) {
   .summary-report-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .summary-report-status {
+    max-width: min(260px, 44vw);
+    flex-direction: row;
   }
 
   .summary-report-entry-row.billed,
@@ -1215,6 +1250,10 @@
 
   .summary-report-form-card.wide {
     grid-column: auto;
+  }
+
+  .summary-report-status {
+    max-width: min(300px, 58vw);
   }
 
   .summary-report-actions,

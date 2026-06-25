@@ -17,9 +17,11 @@ import {
   isOfficeRole,
   isSummaryReportRole,
   resetProfilePassword,
+  saveSummaryReportInput,
   updateAccountPresence,
   updateProfileEmail,
 } from './services/dashboard';
+import { loadSummaryReportInputs } from './screens/SummaryReportScreen';
 
 const PRESENCE_HEARTBEAT_MS = 45 * 1000;
 const DASHBOARD_REFRESH_MS = 30 * 1000;
@@ -28,6 +30,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [dashboard, setDashboard] = useState(null);
+  const [summaryReportInputs, setSummaryReportInputs] = useState(loadSummaryReportInputs);
   const [loading, setLoading] = useState(true);
   const [refreshingDashboard, setRefreshingDashboard] = useState(false);
   const [message, setMessage] = useState('');
@@ -57,6 +60,7 @@ export default function App() {
     try {
       const nextDashboard = await getDashboardSnapshot();
       setDashboard(nextDashboard);
+      setSummaryReportInputs(nextDashboard.summaryReportInputs ?? {});
       setLastUpdatedAt(new Date().toISOString());
       setMessage('');
     } catch (error) {
@@ -71,6 +75,7 @@ export default function App() {
     if (!nextSession?.user) {
       setProfile(null);
       setDashboard(null);
+      setSummaryReportInputs(loadSummaryReportInputs());
       setLastUpdatedAt(null);
       setLoading(false);
       return;
@@ -84,6 +89,7 @@ export default function App() {
         await loadDashboard({ silent: true });
       } else {
         setDashboard(null);
+        setSummaryReportInputs(loadSummaryReportInputs());
         setLastUpdatedAt(null);
       }
     } catch (error) {
@@ -167,6 +173,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'deepwell_readings' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'account_login_logs' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'summary_report_inputs' }, scheduleRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, scheduleRefresh)
       .subscribe();
     const dashboardRefreshTimer = window.setInterval(() => {
@@ -227,8 +234,20 @@ export default function App() {
     setSession(null);
     setProfile(null);
     setDashboard(null);
+    setSummaryReportInputs(loadSummaryReportInputs());
     setLastUpdatedAt(null);
     setActiveView('dashboard');
+  }
+
+  async function handleSaveSummaryReportInput(monthKey, input) {
+    const savedInput = await saveSummaryReportInput({ monthKey, input });
+
+    setSummaryReportInputs((currentInputs) => ({
+      ...currentInputs,
+      [savedInput.monthKey]: savedInput.input,
+    }));
+
+    return savedInput;
   }
 
   async function handleUpdateAccount({ email, password }) {
@@ -370,6 +389,7 @@ export default function App() {
     <DashboardScreen
       activeView={activeView}
       dashboard={dashboard}
+      summaryReportInputs={summaryReportInputs}
       canAccessSummaryReport={canAccessSummaryReport}
       isAdmin={isAdmin}
       isGeneralManager={isGeneralManager}
@@ -384,6 +404,8 @@ export default function App() {
       onApprove={handleApprove}
       onNavigate={setActiveView}
       onRefresh={() => loadDashboard()}
+      onSummaryReportInputsChange={setSummaryReportInputs}
+      onSummaryReportInputSave={handleSaveSummaryReportInput}
       onRoleChange={handleRoleChange}
       onPasswordReset={handlePasswordReset}
       onDeleteAccount={handleDeleteAccount}

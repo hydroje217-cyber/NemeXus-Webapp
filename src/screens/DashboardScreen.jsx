@@ -31,7 +31,7 @@ import ApprovalsScreen from './ApprovalsScreen';
 import LoginLogsScreen from './LoginLogsScreen';
 import OverviewScreen, { buildOperationAlerts } from './OverviewScreen';
 import ReadingsScreen from './ReadingsScreen';
-import SummaryReportScreen, { loadSummaryReportInputs } from './SummaryReportScreen';
+import SummaryReportScreen from './SummaryReportScreen';
 import { formatRoleLabel } from '../services/dashboard';
 import {
   loadNotificationDismissedKeys,
@@ -389,11 +389,14 @@ export default function DashboardScreen({
   profile,
   refreshing,
   session,
+  summaryReportInputs,
   themeMode,
   workingId,
   onApprove,
   onNavigate,
   onRefresh,
+  onSummaryReportInputsChange,
+  onSummaryReportInputSave,
   onRoleChange,
   onPasswordReset,
   onDeleteAccount,
@@ -430,7 +433,6 @@ export default function DashboardScreen({
   const [dashboardSection, setDashboardSection] = useState('summary');
   const [visibleDashboardSections, setVisibleDashboardSections] = useState(['summary']);
   const [dashboardScrollRequest, setDashboardScrollRequest] = useState(0);
-  const [summaryReportInputs, setSummaryReportInputs] = useState(loadSummaryReportInputs);
   const [isBrandMenuOpen, setIsBrandMenuOpen] = useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [isEditAccountOpen, setIsEditAccountOpen] = useState(false);
@@ -570,7 +572,8 @@ export default function DashboardScreen({
         <SummaryReportScreen
           dashboard={dashboard}
           reportInputs={summaryReportInputs}
-          onReportInputsChange={setSummaryReportInputs}
+          onReportInputsChange={onSummaryReportInputsChange}
+          onReportInputSave={onSummaryReportInputSave}
         />
       );
     }

@@ -7,6 +7,7 @@ const REPORT_INPUT_STORAGE_KEY = 'nemexus-summary-report-inputs';
 const MONTH_SHORT_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAY_SHORT_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const SUMMARY_EXPORT_PAGE_NUMBERS = Array.from({ length: 13 }, (_item, index) => index + 1);
+const SAVE_ALL_REPORT_INPUT_MONTH_KEYS = ['billed', 'electric', 'powerCost'];
 const REFERENCE_SUMMARY_REPORT_INPUTS = {
   '2025-12': {
     billedVolume: 5895.89,
@@ -269,6 +270,18 @@ function formatCurrency(value) {
 
 function getFieldStatus(row, fields) {
   return fields.every((field) => Number(row?.[field]) > 0) ? 'added' : 'missing';
+}
+
+function getProfileEmailById(profiles = [], profileId) {
+  if (!profileId) {
+    return '';
+  }
+
+  return profiles.find((profile) => String(profile.id) === String(profileId))?.email || '';
+}
+
+function getAddedByEmail(row, dashboard) {
+  return getProfileEmailById(dashboard?.profiles, row?.updatedBy || row?.createdBy) || row?.updatedBy || row?.createdBy || '';
 }
 
 function getLatestInputMonth(reportInputs = {}, fields = [], fallbackMonthKey) {
@@ -814,7 +827,25 @@ function ResultCard({ label, value }) {
   );
 }
 
-export default function SummaryReportScreen({ dashboard, reportInputs, onReportInputsChange }) {
+function InputStatusPill({ dashboard, row, fields }) {
+  const status = getFieldStatus(row, fields);
+  const addedByEmail = status === 'added' ? getAddedByEmail(row, dashboard) : '';
+
+  return (
+    <span className={`summary-report-status ${status}`} title={addedByEmail ? `Added by ${addedByEmail}` : undefined}>
+      {status === 'added' ? (
+        <>
+          <span>Added by</span>
+          <strong>{addedByEmail || 'Unknown'}</strong>
+        </>
+      ) : (
+        'Missing'
+      )}
+    </span>
+  );
+}
+
+export default function SummaryReportScreen({ dashboard, reportInputs, onReportInputsChange, onReportInputSave }) {
   const effectiveReportInputs = mergeSummaryReportInputs(REFERENCE_SUMMARY_REPORT_INPUTS, reportInputs);
   const yearOptions = getYearOptions(dashboard);
   const initialYear = yearOptions[0] || getCurrentYear();
@@ -841,6 +872,8 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
     powerCost: getLatestInputMonth(effectiveReportInputs, ['intakeBill', 'chlorinationBill', 'operatingHours', 'powerCostProduction', 'deepwellPower', 'chlorinationPower'], fallbackMonthKey),
   }));
   const [openPickerId, setOpenPickerId] = useState('');
+  const [savingInputKey, setSavingInputKey] = useState('');
+  const [saveMessage, setSaveMessage] = useState('');
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [activeExportPickerId, setActiveExportPickerId] = useState(null);
@@ -952,15 +985,50 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
     });
   }
 
-  function handleSave() {
-    saveSummaryReportInputs(effectiveReportInputs);
+  async function handleSave(monthKey) {
+    if (!monthKey) {
+      return;
+    }
+
+    setSavingInputKey(monthKey);
+    setSaveMessage('');
+
+    try {
+      if (onReportInputSave) {
+        const savedInput = await onReportInputSave(monthKey, effectiveReportInputs?.[monthKey] ?? {});
+        onReportInputsChange({
+          ...effectiveReportInputs,
+          [savedInput.monthKey]: savedInput.input,
+        });
+      } else {
+        saveSummaryReportInputs(effectiveReportInputs);
+      }
+      setSaveMessage(`Saved inputs for ${getMonthLabel(monthKey)}.`);
+    } catch (error) {
+      setSaveMessage(error?.message || 'Failed to save summary report inputs.');
+      throw error;
+    } finally {
+      setSavingInputKey('');
+    }
+  }
+
+  async function handleSaveSelectedInputs() {
+    const uniqueMonthKeys = [...new Set(
+      SAVE_ALL_REPORT_INPUT_MONTH_KEYS
+        .map((monthKeyName) => selectedMonths[monthKeyName])
+        .filter(Boolean)
+    )];
+
+    for (const monthKey of uniqueMonthKeys) {
+      await handleSave(monthKey);
+    }
   }
 
   async function handleExport() {
-    handleSave();
     setExporting(true);
 
     try {
+      await handleSaveSelectedInputs();
       const reportMonthKey = String(exportDailyStartDate || exportGraphEndMonthKey || getCurrentMonthKey()).slice(0, 7);
       const reportYear = Number(String(exportGraphEndMonthKey).slice(0, 4)) || getCurrentYear();
       const monthlyProductionYears = dashboard?.monthlyProductionYears ?? [];
@@ -1170,9 +1238,7 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
                 <p>{getMonthLabel(selectedMonths.billed)}</p>
               </div>
             </div>
-            <span className={`summary-report-status ${getFieldStatus(billedRow, ['billedVolume'])}`}>
-              {getFieldStatus(billedRow, ['billedVolume']) === 'added' ? 'Added' : 'Missing'}
-            </span>
+            <InputStatusPill dashboard={dashboard} row={billedRow} fields={['billedVolume']} />
           </header>
           <div className="summary-report-entry-row billed">
             <SummaryMonthPicker
@@ -1186,9 +1252,9 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
               yearOptions={yearOptions}
             />
             <InputField label="Billed Volume m3" value={billedRow.billedVolume} onChange={(value) => updateMonthInput(selectedMonths.billed, 'billedVolume', value)} />
-            <button type="button" className="summary-report-save-button" onClick={handleSave}>
+            <button type="button" className="summary-report-save-button" onClick={() => handleSave(selectedMonths.billed)} disabled={savingInputKey === selectedMonths.billed}>
               <Save size={15} />
-              Save
+              {savingInputKey === selectedMonths.billed ? 'Saving' : 'Save'}
             </button>
           </div>
           <div className="summary-report-results">
@@ -1210,9 +1276,7 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
                 <p>{getMonthLabel(selectedMonths.electric)}</p>
               </div>
             </div>
-            <span className={`summary-report-status ${getFieldStatus(electricRow, ['totalPower', 'leyecoConsumption', 'effectiveRate'])}`}>
-              {getFieldStatus(electricRow, ['totalPower', 'leyecoConsumption', 'effectiveRate']) === 'added' ? 'Added' : 'Missing'}
-            </span>
+            <InputStatusPill dashboard={dashboard} row={electricRow} fields={['totalPower', 'leyecoConsumption', 'effectiveRate']} />
           </header>
           <div className="summary-report-entry-row electric">
             <SummaryMonthPicker
@@ -1229,9 +1293,9 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
             <InputField label="LEYECO kWh" value={electricRow.leyecoConsumption} onChange={(value) => updateMonthInput(selectedMonths.electric, 'leyecoConsumption', value)} />
             <InputField label="Rate / kWh" value={electricRow.effectiveRate} onChange={(value) => updateMonthInput(selectedMonths.electric, 'effectiveRate', value)} />
             <InputField label="Electric Bill" value={calculatedElectricBill || electricRow.electricBill} onChange={(value) => updateMonthInput(selectedMonths.electric, 'electricBill', value)} />
-            <button type="button" className="summary-report-save-button" onClick={handleSave}>
+            <button type="button" className="summary-report-save-button" onClick={() => handleSave(selectedMonths.electric)} disabled={savingInputKey === selectedMonths.electric}>
               <Save size={15} />
-              Save
+              {savingInputKey === selectedMonths.electric ? 'Saving' : 'Save'}
             </button>
           </div>
           <div className="summary-report-results electric">
@@ -1254,9 +1318,7 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
                 <p>{getMonthLabel(selectedMonths.powerCost)}</p>
               </div>
             </div>
-            <span className={`summary-report-status ${getFieldStatus(powerCostRow, ['intakeBill', 'chlorinationBill', 'operatingHours', 'powerCostProduction', 'deepwellPower', 'chlorinationPower'])}`}>
-              {getFieldStatus(powerCostRow, ['intakeBill', 'chlorinationBill', 'operatingHours', 'powerCostProduction', 'deepwellPower', 'chlorinationPower']) === 'added' ? 'Added' : 'Missing'}
-            </span>
+            <InputStatusPill dashboard={dashboard} row={powerCostRow} fields={['intakeBill', 'chlorinationBill', 'operatingHours', 'powerCostProduction', 'deepwellPower', 'chlorinationPower']} />
           </header>
           <div className="summary-report-entry-row power-cost">
             <SummaryMonthPicker
@@ -1273,9 +1335,9 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
             <InputField label="Chlorination Bill" value={powerCostRow.chlorinationBill} onChange={(value) => updateMonthInput(selectedMonths.powerCost, 'chlorinationBill', value)} />
             <InputField label="Operating Hours" value={powerCostRow.operatingHours} step="0.1" onChange={(value) => updateMonthInput(selectedMonths.powerCost, 'operatingHours', value)} />
             <InputField label="Reading Date Label" type="text" placeholder={`${getMonthLabel(selectedMonths.powerCost)} reading`} value={powerCostRow.dateLabel || ''} onChange={(value) => updateMonthInput(selectedMonths.powerCost, 'dateLabel', value)} />
-            <button type="button" className="summary-report-save-button" onClick={handleSave}>
+            <button type="button" className="summary-report-save-button" onClick={() => handleSave(selectedMonths.powerCost)} disabled={savingInputKey === selectedMonths.powerCost}>
               <Save size={15} />
-              Save
+              {savingInputKey === selectedMonths.powerCost ? 'Saving' : 'Save'}
             </button>
           </div>
           <div className="summary-report-entry-row power-cost-extra">
@@ -1296,6 +1358,7 @@ export default function SummaryReportScreen({ dashboard, reportInputs, onReportI
           <p className="summary-report-card-status">{getFieldStatus(powerCostRow, ['intakeBill', 'chlorinationBill', 'operatingHours', 'powerCostProduction', 'deepwellPower', 'chlorinationPower']) === 'added' ? `Power cost inputs added for ${getMonthLabel(selectedMonths.powerCost)}.` : 'No power cost inputs saved for this month.'}</p>
         </section>
       </div>
+      {saveMessage ? <p className="summary-report-save-message">{saveMessage}</p> : null}
     </section>
   );
 }
